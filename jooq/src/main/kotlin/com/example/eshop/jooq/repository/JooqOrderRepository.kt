@@ -1,17 +1,15 @@
 package com.example.eshop.jooq.repository
 
 import com.example.eshop.domain.entity.Order
-import com.example.eshop.domain.repository.OrderRepository
-import com.example.eshop.domain.repository.OrderWithCustomer
-import com.example.eshop.domain.repository.OrderWithDetails
+import com.example.eshop.domain.repository.*
 import com.example.eshop.domain.valueobject.*
 import com.example.eshop.jooq.generated.tables.references.ORDERS
 import com.example.eshop.jooq.generated.tables.references.CUSTOMER
 import com.example.eshop.jooq.generated.tables.references.PAYMENT
 import com.example.eshop.jooq.generated.tables.references.ORDER_ITEM
+import com.example.eshop.jooq.generated.tables.references.PRODUCT
 import mu.KotlinLogging
-import org.jooq.DSLContext
-import org.jooq.Record
+import org.jooq.*
 import org.jooq.impl.DSL
 
 private val logger = KotlinLogging.logger {}
@@ -269,5 +267,237 @@ class JooqOrderRepository(private val dsl: DSLContext) : OrderRepository {
             }
             .toMap()
             .also { logger.debug { "Counted orders for ${it.size} statuses" } }
+    }
+
+    override fun searchOrders(criteria: OrderSearchCriteria): List<OrderSearchResult> {
+        logger.debug { "Searching orders with criteria: $criteria" }
+
+        val o = ORDERS.`as`("o")
+        val c = CUSTOMER.`as`("c")
+        val p = PAYMENT.`as`("p")
+        val oi = ORDER_ITEM.`as`("oi")
+        val pr = PRODUCT.`as`("pr")
+
+        // 동적으로 WHERE 조건 생성
+        val conditions = mutableListOf<Condition>()
+
+        // Order 테이블 조건
+        criteria.orderDateFrom?.let {
+            conditions.add(o.ORDER_DATE.ge(it))
+        }
+        criteria.orderDateTo?.let {
+            conditions.add(o.ORDER_DATE.le(it))
+        }
+        criteria.minTotalAmount?.let {
+            conditions.add(o.TOTAL_AMOUNT.ge(it.amount))
+        }
+        criteria.maxTotalAmount?.let {
+            conditions.add(o.TOTAL_AMOUNT.le(it.amount))
+        }
+        criteria.orderStatuses?.takeIf { it.isNotEmpty() }?.let { statuses ->
+            conditions.add(o.STATUS.`in`(statuses.map { it.name }))
+        }
+
+        // Customer 테이블 조건
+        criteria.customerName?.takeIf { it.isNotBlank() }?.let {
+            conditions.add(c.NAME.containsIgnoreCase(it))
+        }
+        criteria.customerEmail?.takeIf { it.isNotBlank() }?.let {
+            conditions.add(c.EMAIL.containsIgnoreCase(it))
+        }
+        criteria.customerAddress?.takeIf { it.isNotBlank() }?.let {
+            conditions.add(c.ADDRESS.containsIgnoreCase(it))
+        }
+        criteria.customerRegisteredDateFrom?.let {
+            conditions.add(c.REGISTERED_DATE.ge(it))
+        }
+        criteria.customerRegisteredDateTo?.let {
+            conditions.add(c.REGISTERED_DATE.le(it))
+        }
+
+        // Product 테이블 조건
+        criteria.productName?.takeIf { it.isNotBlank() }?.let {
+            conditions.add(pr.NAME.containsIgnoreCase(it))
+        }
+        criteria.productCategory?.takeIf { it.isNotBlank() }?.let {
+            conditions.add(pr.CATEGORY.eq(it))
+        }
+        criteria.minProductPrice?.let {
+            conditions.add(pr.PRICE.ge(it.amount))
+        }
+        criteria.maxProductPrice?.let {
+            conditions.add(pr.PRICE.le(it.amount))
+        }
+
+        // Payment 테이블 조건
+        criteria.paymentMethods?.takeIf { it.isNotEmpty() }?.let { methods ->
+            conditions.add(p.METHOD.`in`(methods.map { it.name }))
+        }
+        criteria.paymentStatuses?.takeIf { it.isNotEmpty() }?.let { statuses ->
+            conditions.add(p.STATUS.`in`(statuses.map { it.name }))
+        }
+        criteria.paymentDateFrom?.let {
+            conditions.add(p.PAYMENT_DATE.ge(it))
+        }
+        criteria.paymentDateTo?.let {
+            conditions.add(p.PAYMENT_DATE.le(it))
+        }
+
+        // 정렬 필드 결정
+        val sortField = when (criteria.sortBy) {
+            OrderSortField.ORDER_DATE -> o.ORDER_DATE
+            OrderSortField.TOTAL_AMOUNT -> o.TOTAL_AMOUNT
+            OrderSortField.CUSTOMER_NAME -> c.NAME
+            OrderSortField.ORDER_STATUS -> o.STATUS
+        }
+
+        // 정렬 방향 적용
+        val orderBy = if (criteria.sortDirection == SortDirection.ASC) {
+            sortField.asc()
+        } else {
+            sortField.desc()
+        }
+
+        // 메인 쿼리 구성
+        val itemCountField = DSL.count(oi.ID).`as`("item_count")
+        val productNamesField = DSL.groupConcat(pr.NAME).separator(", ").`as`("product_names")
+
+        return dsl.select(
+            o.ID, o.CUSTOMER_ID, o.ORDER_DATE, o.TOTAL_AMOUNT, o.STATUS,
+            c.NAME, c.EMAIL,
+            itemCountField,
+            productNamesField,
+            p.STATUS
+        )
+            .from(o)
+            .join(c).on(o.CUSTOMER_ID.eq(c.ID))
+            .leftJoin(oi).on(o.ID.eq(oi.ORDER_ID))
+            .leftJoin(pr).on(oi.PRODUCT_ID.eq(pr.ID))
+            .leftJoin(p).on(o.ID.eq(p.ORDER_ID))
+            .where(conditions)
+            .groupBy(o.ID, o.CUSTOMER_ID, o.ORDER_DATE, o.TOTAL_AMOUNT, o.STATUS,
+                c.NAME, c.EMAIL, p.STATUS)
+            .orderBy(orderBy)
+            .limit(criteria.limit)
+            .offset(criteria.offset)
+            .fetch()
+            .mapNotNull { record ->
+                try {
+                    val order = Order(
+                        id = OrderId(record.getValue(o.ID) ?: return@mapNotNull null),
+                        customerId = CustomerId(record.getValue(o.CUSTOMER_ID) ?: return@mapNotNull null),
+                        orderDate = record.getValue(o.ORDER_DATE) ?: return@mapNotNull null,
+                        totalAmount = Money(record.getValue(o.TOTAL_AMOUNT) ?: return@mapNotNull null),
+                        status = record.getValue(o.STATUS)?.let { OrderStatus.valueOf(it) }
+                            ?: return@mapNotNull null
+                    )
+
+                    val productNamesStr = record.get("product_names", String::class.java)
+                    val productNames = productNamesStr?.split(", ")?.filter { it.isNotBlank() } ?: emptyList()
+
+                    OrderSearchResult(
+                        order = order,
+                        customerName = record.getValue(c.NAME) ?: return@mapNotNull null,
+                        customerEmail = record.getValue(c.EMAIL) ?: return@mapNotNull null,
+                        itemCount = record.get("item_count", Long::class.java)?.toInt() ?: 0,
+                        productNames = productNames,
+                        paymentStatus = record.getValue(p.STATUS)
+                    )
+                } catch (e: Exception) {
+                    logger.error(e) { "Failed to map order search result" }
+                    null
+                }
+            }
+            .also { logger.debug { "Found ${it.size} orders matching criteria" } }
+    }
+
+    override fun countOrders(criteria: OrderSearchCriteria): Long {
+        logger.debug { "Counting orders with criteria: $criteria" }
+
+        val o = ORDERS.`as`("o")
+        val c = CUSTOMER.`as`("c")
+        val p = PAYMENT.`as`("p")
+        val oi = ORDER_ITEM.`as`("oi")
+        val pr = PRODUCT.`as`("pr")
+
+        // 동적으로 WHERE 조건 생성 (searchOrders와 동일한 로직)
+        val conditions = mutableListOf<Condition>()
+
+        // Order 테이블 조건
+        criteria.orderDateFrom?.let {
+            conditions.add(o.ORDER_DATE.ge(it))
+        }
+        criteria.orderDateTo?.let {
+            conditions.add(o.ORDER_DATE.le(it))
+        }
+        criteria.minTotalAmount?.let {
+            conditions.add(o.TOTAL_AMOUNT.ge(it.amount))
+        }
+        criteria.maxTotalAmount?.let {
+            conditions.add(o.TOTAL_AMOUNT.le(it.amount))
+        }
+        criteria.orderStatuses?.takeIf { it.isNotEmpty() }?.let { statuses ->
+            conditions.add(o.STATUS.`in`(statuses.map { it.name }))
+        }
+
+        // Customer 테이블 조건
+        criteria.customerName?.takeIf { it.isNotBlank() }?.let {
+            conditions.add(c.NAME.containsIgnoreCase(it))
+        }
+        criteria.customerEmail?.takeIf { it.isNotBlank() }?.let {
+            conditions.add(c.EMAIL.containsIgnoreCase(it))
+        }
+        criteria.customerAddress?.takeIf { it.isNotBlank() }?.let {
+            conditions.add(c.ADDRESS.containsIgnoreCase(it))
+        }
+        criteria.customerRegisteredDateFrom?.let {
+            conditions.add(c.REGISTERED_DATE.ge(it))
+        }
+        criteria.customerRegisteredDateTo?.let {
+            conditions.add(c.REGISTERED_DATE.le(it))
+        }
+
+        // Product 테이블 조건
+        criteria.productName?.takeIf { it.isNotBlank() }?.let {
+            conditions.add(pr.NAME.containsIgnoreCase(it))
+        }
+        criteria.productCategory?.takeIf { it.isNotBlank() }?.let {
+            conditions.add(pr.CATEGORY.eq(it))
+        }
+        criteria.minProductPrice?.let {
+            conditions.add(pr.PRICE.ge(it.amount))
+        }
+        criteria.maxProductPrice?.let {
+            conditions.add(pr.PRICE.le(it.amount))
+        }
+
+        // Payment 테이블 조건
+        criteria.paymentMethods?.takeIf { it.isNotEmpty() }?.let { methods ->
+            conditions.add(p.METHOD.`in`(methods.map { it.name }))
+        }
+        criteria.paymentStatuses?.takeIf { it.isNotEmpty() }?.let { statuses ->
+            conditions.add(p.STATUS.`in`(statuses.map { it.name }))
+        }
+        criteria.paymentDateFrom?.let {
+            conditions.add(p.PAYMENT_DATE.ge(it))
+        }
+        criteria.paymentDateTo?.let {
+            conditions.add(p.PAYMENT_DATE.le(it))
+        }
+
+        // COUNT 쿼리 (DISTINCT 사용하여 중복 제거)
+        return dsl.selectCount()
+            .from(
+                dsl.selectDistinct(o.ID)
+                    .from(o)
+                    .join(c).on(o.CUSTOMER_ID.eq(c.ID))
+                    .leftJoin(oi).on(o.ID.eq(oi.ORDER_ID))
+                    .leftJoin(pr).on(oi.PRODUCT_ID.eq(pr.ID))
+                    .leftJoin(p).on(o.ID.eq(p.ORDER_ID))
+                    .where(conditions)
+                    .asTable("distinct_orders")
+            )
+            .fetchOne(0, Long::class.java) ?: 0L
+            .also { logger.debug { "Counted $it orders matching criteria" } }
     }
 }

@@ -30,6 +30,17 @@ interface OrderRepository {
      * 상태별 주문 통계 조회
      */
     fun countOrdersByStatus(): Map<OrderStatus, Long>
+
+    /**
+     * 동적 검색 조건을 이용한 주문 검색
+     * 여러 테이블(Order, Customer, Product, Payment)의 컬럼을 조합하여 검색
+     */
+    fun searchOrders(criteria: OrderSearchCriteria): List<OrderSearchResult>
+
+    /**
+     * 동적 검색 조건에 매칭되는 주문 개수 조회
+     */
+    fun countOrders(criteria: OrderSearchCriteria): Long
 }
 
 /**
