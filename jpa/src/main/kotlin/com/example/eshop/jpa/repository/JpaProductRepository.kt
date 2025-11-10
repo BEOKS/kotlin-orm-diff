@@ -11,14 +11,23 @@ class JpaProductRepository(private val em: EntityManager) : ProductRepository {
 
     override fun save(product: Product): Product {
         val entity = ProductEntity(
-            id = product.id.value,
+            id = 0, // Auto-generated
             name = product.name,
             price = product.price.amount,
             stock = product.stock,
             category = product.category
         )
         em.persist(entity)
-        return product
+        em.flush() // Ensure ID is generated
+
+        // Return new Product with generated ID
+        return Product(
+            id = ProductId(entity.id),
+            name = product.name,
+            price = product.price,
+            stock = product.stock,
+            category = product.category
+        )
     }
 
     override fun findById(id: ProductId): Product? {
@@ -26,7 +35,13 @@ class JpaProductRepository(private val em: EntityManager) : ProductRepository {
     }
 
     override fun findAll(): List<Product> {
-        return em.createQuery("SELECT p FROM ProductEntity p", ProductEntity::class.java)
+        return findAll(page = 0, size = Int.MAX_VALUE)
+    }
+
+    fun findAll(page: Int = 0, size: Int = 20): List<Product> {
+        return em.createQuery("SELECT p FROM ProductEntity p ORDER BY p.id", ProductEntity::class.java)
+            .setFirstResult(page * size)
+            .setMaxResults(size)
             .resultList
             .map { it.toDomain() }
     }
@@ -34,12 +49,13 @@ class JpaProductRepository(private val em: EntityManager) : ProductRepository {
     override fun update(product: Product): Product {
         val entity = em.find(ProductEntity::class.java, product.id.value)
             ?: throw IllegalArgumentException("Product not found: ${product.id.value}")
-        
+
+        // Dirty checking - no need for merge()
         entity.name = product.name
         entity.price = product.price.amount
         entity.stock = product.stock
         entity.category = product.category
-        em.merge(entity)
+
         return product
     }
 
@@ -58,18 +74,20 @@ class JpaProductRepository(private val em: EntityManager) : ProductRepository {
             .setParameter("threshold", threshold)
             .resultList
             .map { it.toDomain() }
-        
+
         return products.groupBy { it.category }
     }
 
     override fun findTopSellingProducts(limit: Int): List<Product> {
         val query = em.createQuery("""
             SELECT p FROM ProductEntity p
-            JOIN OrderItemEntity oi ON p.id = oi.productId
-            GROUP BY p.id, p.name, p.price, p.stock, p.category
-            ORDER BY SUM(oi.quantity) DESC
+            WHERE p.id IN (
+                SELECT oi.product.id FROM OrderItemEntity oi
+                GROUP BY oi.product.id
+                ORDER BY SUM(oi.quantity) DESC
+            )
         """, ProductEntity::class.java)
-        
+
         query.maxResults = limit
         return query.resultList.map { it.toDomain() }
     }
@@ -84,4 +102,3 @@ class JpaProductRepository(private val em: EntityManager) : ProductRepository {
         )
     }
 }
-

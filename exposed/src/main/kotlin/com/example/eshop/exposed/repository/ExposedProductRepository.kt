@@ -8,10 +8,11 @@ import com.example.eshop.exposed.table.OrderItems
 import com.example.eshop.exposed.table.Products
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
+import org.jetbrains.exposed.sql.transactions.transaction
 
 class ExposedProductRepository : ProductRepository {
 
-    override fun save(product: Product): Product {
+    override fun save(product: Product): Product = transaction {
         Products.insert {
             it[id] = product.id.value
             it[name] = product.name
@@ -19,48 +20,55 @@ class ExposedProductRepository : ProductRepository {
             it[stock] = product.stock
             it[category] = product.category
         }
-        return product
+        product
     }
 
-    override fun findById(id: ProductId): Product? {
-        return Products.selectAll()
+    override fun findById(id: ProductId): Product? = transaction {
+        Products.selectAll()
             .where { Products.id eq id.value }
             .map { it.toProduct() }
             .singleOrNull()
     }
 
-    override fun findAll(): List<Product> {
-        return Products.selectAll()
+    override fun findAll(): List<Product> = transaction {
+        Products.selectAll()
             .map { it.toProduct() }
     }
 
-    override fun update(product: Product): Product {
-        Products.update({ Products.id eq product.id.value }) {
+    override fun update(product: Product): Product = transaction {
+        val updatedRows = Products.update({ Products.id eq product.id.value }) {
             it[name] = product.name
             it[price] = product.price.amount
             it[stock] = product.stock
             it[category] = product.category
         }
-        return product
+        if (updatedRows == 0) {
+            throw IllegalStateException("Product with id ${product.id.value} not found")
+        }
+        product
     }
 
-    override fun delete(id: ProductId): Boolean {
+    override fun delete(id: ProductId): Boolean = transaction {
         val deleted = Products.deleteWhere { Products.id eq id.value }
-        return deleted > 0
+        deleted > 0
     }
 
-    override fun findProductsLowStockByCategory(threshold: Int): Map<String, List<Product>> {
-        return Products.selectAll()
+    override fun findProductsLowStockByCategory(threshold: Int): Map<String, List<Product>> = transaction {
+        require(threshold >= 0) { "threshold must be non-negative" }
+
+        Products.selectAll()
             .where { Products.stock lessEq threshold }
             .orderBy(Products.category to SortOrder.ASC, Products.stock to SortOrder.ASC)
             .map { it.toProduct() }
             .groupBy { it.category }
     }
 
-    override fun findTopSellingProducts(limit: Int): List<Product> {
+    override fun findTopSellingProducts(limit: Int): List<Product> = transaction {
+        require(limit > 0) { "limit must be positive" }
+
         val totalSoldAlias = OrderItems.quantity.sum()
-        
-        return Products
+
+        Products
             .join(OrderItems, JoinType.INNER, Products.id, OrderItems.productId)
             .select(
                 Products.id,

@@ -13,6 +13,8 @@ import jakarta.persistence.EntityManager
 class QueryDslCustomerRepository(private val em: EntityManager) : CustomerRepository {
 
     private val queryFactory = JPAQueryFactory(em)
+    private val qCustomer = QCustomerEntity.customerEntity
+    private val qOrder = QOrderEntity.orderEntity
 
     override fun save(customer: Customer): Customer {
         val entity = CustomerEntity(
@@ -27,8 +29,6 @@ class QueryDslCustomerRepository(private val em: EntityManager) : CustomerReposi
     }
 
     override fun findById(id: CustomerId): Customer? {
-        val qCustomer = QCustomerEntity.customerEntity
-        
         return queryFactory
             .selectFrom(qCustomer)
             .where(qCustomer.id.eq(id.value))
@@ -37,8 +37,6 @@ class QueryDslCustomerRepository(private val em: EntityManager) : CustomerReposi
     }
 
     override fun findAll(): List<Customer> {
-        val qCustomer = QCustomerEntity.customerEntity
-        
         return queryFactory
             .selectFrom(qCustomer)
             .fetch()
@@ -48,12 +46,12 @@ class QueryDslCustomerRepository(private val em: EntityManager) : CustomerReposi
     override fun update(customer: Customer): Customer {
         val entity = em.find(CustomerEntity::class.java, customer.id.value)
             ?: throw IllegalArgumentException("Customer not found: ${customer.id.value}")
-        
+
         entity.name = customer.name
         entity.email = customer.email
         entity.address = customer.address
         entity.registeredDate = customer.registeredDate
-        em.merge(entity)
+        // Dirty Checking will automatically generate UPDATE query
         return customer
     }
 
@@ -64,9 +62,6 @@ class QueryDslCustomerRepository(private val em: EntityManager) : CustomerReposi
     }
 
     override fun findCustomersWithHighValueOrders(minAmount: Money): List<Customer> {
-        val qCustomer = QCustomerEntity.customerEntity
-        val qOrder = QOrderEntity.orderEntity
-        
         return queryFactory
             .selectFrom(qCustomer)
             .join(qOrder).on(qCustomer.id.eq(qOrder.customerId))
@@ -77,9 +72,6 @@ class QueryDslCustomerRepository(private val em: EntityManager) : CustomerReposi
     }
 
     override fun findCustomersWithOrdersInPeriod(startDate: String, endDate: String): List<Customer> {
-        val qCustomer = QCustomerEntity.customerEntity
-        val qOrder = QOrderEntity.orderEntity
-        
         val start = java.time.LocalDate.parse(startDate)
         val end = java.time.LocalDate.parse(endDate)
         

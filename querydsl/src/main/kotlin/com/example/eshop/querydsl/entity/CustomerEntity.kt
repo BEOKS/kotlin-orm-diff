@@ -8,18 +8,18 @@ import java.time.LocalDate
 class CustomerEntity(
     @Id
     @Column(name = "id")
-    var id: Long = 0,
+    val id: Long = 0,
 
     @Column(name = "name", nullable = false)
-    var name: String = "",
+    var name: String,
 
     @Column(name = "email", nullable = false)
-    var email: String = "",
+    var email: String,
 
     @Column(name = "address", nullable = false)
-    var address: String = "",
+    var address: String,
 
     @Column(name = "registered_date", nullable = false)
-    var registeredDate: LocalDate = LocalDate.now()
+    var registeredDate: LocalDate
 )
 

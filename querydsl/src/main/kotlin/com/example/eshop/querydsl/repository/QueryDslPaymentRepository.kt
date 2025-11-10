@@ -14,6 +14,9 @@ import jakarta.persistence.EntityManager
 class QueryDslPaymentRepository(private val em: EntityManager) : PaymentRepository {
 
     private val queryFactory = JPAQueryFactory(em)
+    private val qPayment = QPaymentEntity.paymentEntity
+    private val qOrder = QOrderEntity.orderEntity
+    private val qCustomer = QCustomerEntity.customerEntity
 
     override fun save(payment: Payment): Payment {
         val entity = PaymentEntity(
@@ -29,8 +32,6 @@ class QueryDslPaymentRepository(private val em: EntityManager) : PaymentReposito
     }
 
     override fun findById(id: PaymentId): Payment? {
-        val qPayment = QPaymentEntity.paymentEntity
-        
         return queryFactory
             .selectFrom(qPayment)
             .where(qPayment.id.eq(id.value))
@@ -39,8 +40,6 @@ class QueryDslPaymentRepository(private val em: EntityManager) : PaymentReposito
     }
 
     override fun findAll(): List<Payment> {
-        val qPayment = QPaymentEntity.paymentEntity
-        
         return queryFactory
             .selectFrom(qPayment)
             .fetch()
@@ -50,13 +49,13 @@ class QueryDslPaymentRepository(private val em: EntityManager) : PaymentReposito
     override fun update(payment: Payment): Payment {
         val entity = em.find(PaymentEntity::class.java, payment.id.value)
             ?: throw IllegalArgumentException("Payment not found: ${payment.id.value}")
-        
+
         entity.orderId = payment.orderId.value
         entity.amount = payment.amount.amount
         entity.paymentDate = payment.paymentDate
         entity.method = payment.method.name
         entity.status = payment.status.name
-        em.merge(entity)
+        // Dirty Checking will automatically generate UPDATE query
         return payment
     }
 
@@ -67,10 +66,6 @@ class QueryDslPaymentRepository(private val em: EntityManager) : PaymentReposito
     }
 
     override fun calculateCustomerOrderStatistics(): List<CustomerStatistics> {
-        val qCustomer = QCustomerEntity.customerEntity
-        val qOrder = QOrderEntity.orderEntity
-        val qPayment = QPaymentEntity.paymentEntity
-        
         val results = queryFactory
             .select(
                 qCustomer.id,
@@ -89,19 +84,17 @@ class QueryDslPaymentRepository(private val em: EntityManager) : PaymentReposito
         
         return results.map { tuple ->
             CustomerStatistics(
-                customerId = tuple.get(0, Long::class.java)!!,
-                customerName = tuple.get(1, String::class.java)!!,
-                totalPayments = Money(tuple.get(2, java.math.BigDecimal::class.java) ?: java.math.BigDecimal.ZERO),
-                averagePayment = Money(tuple.get(3, Double::class.java)?.let { java.math.BigDecimal.valueOf(it) } ?: java.math.BigDecimal.ZERO),
-                paymentCount = tuple.get(4, Long::class.java) ?: 0L,
-                completedOrderCount = tuple.get(5, Long::class.java) ?: 0L
+                customerId = tuple.get(qCustomer.id)!!,
+                customerName = tuple.get(qCustomer.name)!!,
+                totalPayments = Money(tuple.get(qPayment.amount.sum()) ?: java.math.BigDecimal.ZERO),
+                averagePayment = Money(tuple.get(qPayment.amount.avg())?.let { java.math.BigDecimal.valueOf(it) } ?: java.math.BigDecimal.ZERO),
+                paymentCount = tuple.get(qPayment.id.count()) ?: 0L,
+                completedOrderCount = tuple.get(qOrder.id.countDistinct()) ?: 0L
             )
         }
     }
 
     override fun calculatePaymentMethodStatistics(): Map<PaymentMethod, PaymentMethodStats> {
-        val qPayment = QPaymentEntity.paymentEntity
-        
         val results = queryFactory
             .select(
                 qPayment.method,
@@ -126,8 +119,6 @@ class QueryDslPaymentRepository(private val em: EntityManager) : PaymentReposito
     }
 
     override fun findByOrderId(orderId: OrderId): Payment? {
-        val qPayment = QPaymentEntity.paymentEntity
-        
         return queryFactory
             .selectFrom(qPayment)
             .where(qPayment.orderId.eq(orderId.value))
@@ -136,10 +127,6 @@ class QueryDslPaymentRepository(private val em: EntityManager) : PaymentReposito
     }
 
     override fun findFailedPaymentsWithDetails(): List<PaymentWithDetails> {
-        val qPayment = QPaymentEntity.paymentEntity
-        val qOrder = QOrderEntity.orderEntity
-        val qCustomer = QCustomerEntity.customerEntity
-        
         val results = queryFactory
             .select(
                 qPayment.id,
@@ -179,15 +166,8 @@ class QueryDslPaymentRepository(private val em: EntityManager) : PaymentReposito
         minTotalAmount: Money,
         minPaymentCount: Long
     ): List<PremiumCustomerInfo> {
-        val qPayment = QPaymentEntity.paymentEntity
-        val qOrder = QOrderEntity.orderEntity
-        val qCustomer = QCustomerEntity.customerEntity
-
-        // QueryDSL에서 union을 사용하려면 두 쿼리를 실행하고 Kotlin에서 병합하는 것이 더 간단합니다
-        // (QueryDSL의 union은 복잡한 타입 처리 문제가 있습니다)
-        
-        // 첫 번째 쿼리: 고액 결제자 (총 결제 금액이 minTotalAmount 이상)
-        val highValueCustomers = queryFactory
+        // Single query with OR condition - more efficient than UNION
+        return queryFactory
             .select(
                 qCustomer.id,
                 qCustomer.name,
@@ -200,66 +180,30 @@ class QueryDslPaymentRepository(private val em: EntityManager) : PaymentReposito
             .join(qPayment).on(qOrder.id.eq(qPayment.orderId))
             .where(qPayment.status.eq(PaymentStatus.COMPLETED.name))
             .groupBy(qCustomer.id, qCustomer.name, qCustomer.email)
-            .having(qPayment.amount.sum().goe(minTotalAmount.amount))
-            .fetch()
-            .map { tuple ->
-                PremiumCustomerInfo(
-                    customerId = tuple.get(qCustomer.id)!!,
-                    customerName = tuple.get(qCustomer.name)!!,
-                    customerEmail = tuple.get(qCustomer.email)!!,
-                    totalPaymentAmount = Money(tuple.get(qPayment.amount.sum()) ?: java.math.BigDecimal.ZERO),
-                    paymentCount = tuple.get(qPayment.id.count()) ?: 0L,
-                    customerType = PremiumCustomerType.HIGH_VALUE // 임시로 설정
-                )
-            }
-
-        // 두 번째 쿼리: 빈번한 결제자 (결제 횟수가 minPaymentCount 이상)
-        val frequentPayers = queryFactory
-            .select(
-                qCustomer.id,
-                qCustomer.name,
-                qCustomer.email,
-                qPayment.amount.sum(),
-                qPayment.id.count()
+            .having(
+                qPayment.amount.sum().goe(minTotalAmount.amount)
+                    .or(qPayment.id.count().goe(minPaymentCount))
             )
-            .from(qCustomer)
-            .join(qOrder).on(qCustomer.id.eq(qOrder.customerId))
-            .join(qPayment).on(qOrder.id.eq(qPayment.orderId))
-            .where(qPayment.status.eq(PaymentStatus.COMPLETED.name))
-            .groupBy(qCustomer.id, qCustomer.name, qCustomer.email)
-            .having(qPayment.id.count().goe(minPaymentCount))
             .fetch()
             .map { tuple ->
+                val totalAmount = Money(tuple.get(qPayment.amount.sum()) ?: java.math.BigDecimal.ZERO)
+                val count = tuple.get(qPayment.id.count()) ?: 0L
+
                 PremiumCustomerInfo(
                     customerId = tuple.get(qCustomer.id)!!,
                     customerName = tuple.get(qCustomer.name)!!,
                     customerEmail = tuple.get(qCustomer.email)!!,
-                    totalPaymentAmount = Money(tuple.get(qPayment.amount.sum()) ?: java.math.BigDecimal.ZERO),
-                    paymentCount = tuple.get(qPayment.id.count()) ?: 0L,
-                    customerType = PremiumCustomerType.FREQUENT_PAYER // 임시로 설정
-                )
-            }
-
-        // UNION 효과: 두 리스트를 합치고 중복을 제거 (customerId 기준)
-        val allCustomers = (highValueCustomers + frequentPayers)
-            .groupBy { it.customerId }
-            .map { (_, customers) ->
-                // 중복이 있다면 BOTH로 설정
-                val customer = customers.first()
-                val isBoth = customers.size > 1 || 
-                    (customer.totalPaymentAmount.amount >= minTotalAmount.amount && 
-                     customer.paymentCount >= minPaymentCount)
-                
-                customer.copy(
+                    totalPaymentAmount = totalAmount,
+                    paymentCount = count,
                     customerType = when {
-                        isBoth -> PremiumCustomerType.BOTH
-                        customer.totalPaymentAmount.amount >= minTotalAmount.amount -> PremiumCustomerType.HIGH_VALUE
+                        totalAmount.amount >= minTotalAmount.amount && count >= minPaymentCount
+                            -> PremiumCustomerType.BOTH
+                        totalAmount.amount >= minTotalAmount.amount
+                            -> PremiumCustomerType.HIGH_VALUE
                         else -> PremiumCustomerType.FREQUENT_PAYER
                     }
                 )
             }
-        
-        return allCustomers
     }
 
     private fun PaymentEntity.toDomain(): Payment {

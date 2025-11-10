@@ -9,6 +9,7 @@ import com.example.eshop.exposed.table.Payments
 import org.jetbrains.exposed.sql.Database
 import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.transactions.transaction
+import org.jetbrains.exposed.sql.transactions.TransactionManager
 import org.junit.jupiter.api.*
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -29,6 +30,11 @@ class ExposedPaymentRepositoryTest {
     @BeforeEach
     fun setup() {
         TestDatabase.cleanDatabase(db)
+    }
+
+    @AfterAll
+    fun tearDownAll() {
+        TransactionManager.closeAndUnregister(db)
     }
 
     @Test

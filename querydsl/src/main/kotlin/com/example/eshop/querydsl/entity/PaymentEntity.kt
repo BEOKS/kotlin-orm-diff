@@ -9,21 +9,21 @@ import java.time.LocalDateTime
 class PaymentEntity(
     @Id
     @Column(name = "id")
-    var id: Long = 0,
+    val id: Long = 0,
 
     @Column(name = "order_id", nullable = false)
-    var orderId: Long = 0,
+    var orderId: Long,
 
     @Column(name = "amount", nullable = false, precision = 19, scale = 2)
-    var amount: BigDecimal = BigDecimal.ZERO,
+    var amount: BigDecimal,
 
     @Column(name = "payment_date", nullable = false)
-    var paymentDate: LocalDateTime = LocalDateTime.now(),
+    var paymentDate: LocalDateTime,
 
     @Column(name = "method", nullable = false)
-    var method: String = "",
+    var method: String,
 
     @Column(name = "status", nullable = false)
-    var status: String = ""
+    var status: String
 )
 

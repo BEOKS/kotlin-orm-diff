@@ -48,7 +48,7 @@ class JpaProductRepositoryTest {
     fun `should save and find product by id`() {
         // Given
         val product = Product(
-            id = ProductId(1L),
+            id = ProductId(1),
             name = "Laptop",
             price = Money(999.99),
             stock = 50,
@@ -56,24 +56,25 @@ class JpaProductRepositoryTest {
         )
 
         // When
-        repository.save(product)
+        val saved = repository.save(product)
         em.flush()
-        val found = repository.findById(ProductId(1L))
+        val found = repository.findById(saved.id)
 
         // Then
         Assertions.assertNotNull(found)
-        Assertions.assertEquals(product.name, found?.name)
-        Assertions.assertEquals(product.category, found?.category)
-        println("✓ Product saved and retrieved: ${found?.name} - $${found?.price}")
+        Assertions.assertTrue(saved.id.value > 0)
+        Assertions.assertEquals(saved.name, found?.name)
+        Assertions.assertEquals(saved.category, found?.category)
+        println("Product saved and retrieved: ${found?.name} - $${found?.price} (ID: ${saved.id.value})")
     }
 
     @Test
     fun `should find products with low stock by category`() {
         // Given
-        repository.save(Product(ProductId(1L), "Laptop", Money(999.99), 3, "Electronics"))
-        repository.save(Product(ProductId(2L), "Mouse", Money(29.99), 5, "Electronics"))
-        repository.save(Product(ProductId(3L), "Desk", Money(299.99), 2, "Furniture"))
-        repository.save(Product(ProductId(4L), "Chair", Money(199.99), 50, "Furniture"))
+        repository.save(Product(ProductId(1), "Laptop", Money(999.99), 3, "Electronics"))
+        repository.save(Product(ProductId(1), "Mouse", Money(29.99), 5, "Electronics"))
+        repository.save(Product(ProductId(1), "Desk", Money(299.99), 2, "Furniture"))
+        repository.save(Product(ProductId(1), "Chair", Money(199.99), 50, "Furniture"))
         em.flush()
 
         // When
@@ -81,7 +82,7 @@ class JpaProductRepositoryTest {
 
         // Then
         Assertions.assertTrue(lowStockProducts.isNotEmpty())
-        println("✓ Low stock products by category:")
+        println("Low stock products by category:")
         lowStockProducts.forEach { (category, products) ->
             println("  Category: $category")
             products.forEach { product ->
@@ -101,19 +102,19 @@ class JpaProductRepositoryTest {
 
         // Then
         Assertions.assertTrue(topProducts.isNotEmpty())
-        println("✓ Top selling products:")
+        println("Top selling products:")
         topProducts.forEach { product ->
             println("  - ${product.name} (${product.category})")
         }
     }
 
     private fun setupProductsWithOrders() {
-        repository.save(Product(ProductId(1L), "Laptop", Money(999.99), 50, "Electronics"))
-        repository.save(Product(ProductId(2L), "Mouse", Money(29.99), 100, "Electronics"))
-        repository.save(Product(ProductId(3L), "Keyboard", Money(79.99), 75, "Electronics"))
+        val p1 = repository.save(Product(ProductId(1), "Laptop", Money(999.99), 50, "Electronics"))
+        val p2 = repository.save(Product(ProductId(1), "Mouse", Money(29.99), 100, "Electronics"))
+        val p3 = repository.save(Product(ProductId(1), "Keyboard", Money(79.99), 75, "Electronics"))
 
-        JpaCustomerRepository(em).save(Customer(
-            id = CustomerId(1L),
+        val c1 = JpaCustomerRepository(em).save(Customer(
+            id = CustomerId(1),
             name = "Test Customer",
             email = "test@example.com",
             address = "123 St",
@@ -121,24 +122,23 @@ class JpaProductRepositoryTest {
         ))
 
         em.createNativeQuery("""
-            INSERT INTO orders (id, customer_id, order_date, total_amount, status) 
-            VALUES (1, 1, '2024-06-01 10:00:00', 2000.00, 'DELIVERED')
+            INSERT INTO orders (id, customer_id, order_date, total_amount, status, version)
+            VALUES (1, ${c1.id.value}, '2024-06-01 10:00:00', 2000.00, 'DELIVERED', 0)
         """).executeUpdate()
 
         em.createNativeQuery("""
-            INSERT INTO order_item (id, order_id, product_id, quantity, price) 
-            VALUES (1, 1, 1, 10, 999.99)
+            INSERT INTO order_item (id, order_id, product_id, quantity, price)
+            VALUES (1, 1, ${p1.id.value}, 10, 999.99)
         """).executeUpdate()
-        
+
         em.createNativeQuery("""
-            INSERT INTO order_item (id, order_id, product_id, quantity, price) 
-            VALUES (2, 1, 2, 5, 29.99)
+            INSERT INTO order_item (id, order_id, product_id, quantity, price)
+            VALUES (2, 1, ${p2.id.value}, 5, 29.99)
         """).executeUpdate()
-        
+
         em.createNativeQuery("""
-            INSERT INTO order_item (id, order_id, product_id, quantity, price) 
-            VALUES (3, 1, 3, 3, 79.99)
+            INSERT INTO order_item (id, order_id, product_id, quantity, price)
+            VALUES (3, 1, ${p3.id.value}, 3, 79.99)
         """).executeUpdate()
     }
 }
-

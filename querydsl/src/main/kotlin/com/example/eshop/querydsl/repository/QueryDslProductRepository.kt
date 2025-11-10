@@ -13,6 +13,8 @@ import jakarta.persistence.EntityManager
 class QueryDslProductRepository(private val em: EntityManager) : ProductRepository {
 
     private val queryFactory = JPAQueryFactory(em)
+    private val qProduct = QProductEntity.productEntity
+    private val qOrderItem = QOrderItemEntity.orderItemEntity
 
     override fun save(product: Product): Product {
         val entity = ProductEntity(
@@ -27,8 +29,6 @@ class QueryDslProductRepository(private val em: EntityManager) : ProductReposito
     }
 
     override fun findById(id: ProductId): Product? {
-        val qProduct = QProductEntity.productEntity
-        
         return queryFactory
             .selectFrom(qProduct)
             .where(qProduct.id.eq(id.value))
@@ -37,8 +37,6 @@ class QueryDslProductRepository(private val em: EntityManager) : ProductReposito
     }
 
     override fun findAll(): List<Product> {
-        val qProduct = QProductEntity.productEntity
-        
         return queryFactory
             .selectFrom(qProduct)
             .fetch()
@@ -48,12 +46,12 @@ class QueryDslProductRepository(private val em: EntityManager) : ProductReposito
     override fun update(product: Product): Product {
         val entity = em.find(ProductEntity::class.java, product.id.value)
             ?: throw IllegalArgumentException("Product not found: ${product.id.value}")
-        
+
         entity.name = product.name
         entity.price = product.price.amount
         entity.stock = product.stock
         entity.category = product.category
-        em.merge(entity)
+        // Dirty Checking will automatically generate UPDATE query
         return product
     }
 
@@ -64,8 +62,6 @@ class QueryDslProductRepository(private val em: EntityManager) : ProductReposito
     }
 
     override fun findProductsLowStockByCategory(threshold: Int): Map<String, List<Product>> {
-        val qProduct = QProductEntity.productEntity
-        
         val products = queryFactory
             .selectFrom(qProduct)
             .where(qProduct.stock.loe(threshold))
@@ -77,9 +73,6 @@ class QueryDslProductRepository(private val em: EntityManager) : ProductReposito
     }
 
     override fun findTopSellingProducts(limit: Int): List<Product> {
-        val qProduct = QProductEntity.productEntity
-        val qOrderItem = QOrderItemEntity.orderItemEntity
-        
         return queryFactory
             .selectFrom(qProduct)
             .join(qOrderItem).on(qProduct.id.eq(qOrderItem.productId))

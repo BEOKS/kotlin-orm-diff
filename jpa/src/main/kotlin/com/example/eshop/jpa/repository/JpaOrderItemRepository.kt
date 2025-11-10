@@ -8,21 +8,38 @@ import com.example.eshop.domain.valueobject.Money
 import com.example.eshop.domain.valueobject.OrderId
 import com.example.eshop.domain.valueobject.OrderItemId
 import com.example.eshop.domain.valueobject.ProductId
+import com.example.eshop.jpa.entity.OrderEntity
 import com.example.eshop.jpa.entity.OrderItemEntity
+import com.example.eshop.jpa.entity.ProductEntity
 import jakarta.persistence.EntityManager
 
 class JpaOrderItemRepository(private val em: EntityManager) : OrderItemRepository {
 
     override fun save(orderItem: OrderItem): OrderItem {
+        // Find the order and product entities to establish relationships
+        val order = em.find(OrderEntity::class.java, orderItem.orderId.value)
+            ?: throw IllegalArgumentException("Order not found: ${orderItem.orderId.value}")
+        val product = em.find(ProductEntity::class.java, orderItem.productId.value)
+            ?: throw IllegalArgumentException("Product not found: ${orderItem.productId.value}")
+
         val entity = OrderItemEntity(
-            id = orderItem.id.value,
-            orderId = orderItem.orderId.value,
-            productId = orderItem.productId.value,
+            id = 0, // Auto-generated
+            order = order,
+            product = product,
             quantity = orderItem.quantity,
             price = orderItem.price.amount
         )
         em.persist(entity)
-        return orderItem
+        em.flush() // Ensure ID is generated
+
+        // Return new OrderItem with generated ID
+        return OrderItem(
+            id = OrderItemId(entity.id),
+            orderId = orderItem.orderId,
+            productId = orderItem.productId,
+            quantity = orderItem.quantity,
+            price = orderItem.price
+        )
     }
 
     override fun findById(id: OrderItemId): OrderItem? {
@@ -30,7 +47,7 @@ class JpaOrderItemRepository(private val em: EntityManager) : OrderItemRepositor
     }
 
     override fun findAll(): List<OrderItem> {
-        return em.createQuery("SELECT oi FROM OrderItemEntity oi", OrderItemEntity::class.java)
+        return em.createQuery("SELECT oi FROM OrderItemEntity oi ORDER BY oi.id", OrderItemEntity::class.java)
             .resultList
             .map { it.toDomain() }
     }
@@ -38,12 +55,19 @@ class JpaOrderItemRepository(private val em: EntityManager) : OrderItemRepositor
     override fun update(orderItem: OrderItem): OrderItem {
         val entity = em.find(OrderItemEntity::class.java, orderItem.id.value)
             ?: throw IllegalArgumentException("OrderItem not found: ${orderItem.id.value}")
-        
-        entity.orderId = orderItem.orderId.value
-        entity.productId = orderItem.productId.value
+
+        // Find the order and product entities if they changed
+        val order = em.find(OrderEntity::class.java, orderItem.orderId.value)
+            ?: throw IllegalArgumentException("Order not found: ${orderItem.orderId.value}")
+        val product = em.find(ProductEntity::class.java, orderItem.productId.value)
+            ?: throw IllegalArgumentException("Product not found: ${orderItem.productId.value}")
+
+        // Dirty checking - no need for merge()
+        entity.order = order
+        entity.product = product
         entity.quantity = orderItem.quantity
         entity.price = orderItem.price.amount
-        em.merge(entity)
+
         return orderItem
     }
 
@@ -55,14 +79,13 @@ class JpaOrderItemRepository(private val em: EntityManager) : OrderItemRepositor
 
     override fun findByOrderIdWithProduct(orderId: OrderId): List<OrderItemWithProduct> {
         val query = em.createQuery("""
-            SELECT oi, p.name, p.category
+            SELECT oi, oi.product.name, oi.product.category
             FROM OrderItemEntity oi
-            JOIN ProductEntity p ON oi.productId = p.id
-            WHERE oi.orderId = :orderId
+            WHERE oi.order.id = :orderId
         """)
-        
+
         query.setParameter("orderId", orderId.value)
-        
+
         @Suppress("UNCHECKED_CAST")
         return (query.resultList as List<Array<Any>>).map { row ->
             val entity = row[0] as OrderItemEntity
@@ -76,22 +99,22 @@ class JpaOrderItemRepository(private val em: EntityManager) : OrderItemRepositor
 
     override fun calculateProductSalesStatistics(productId: ProductId): ProductSalesStatistics? {
         val query = em.createQuery("""
-            SELECT 
-                oi.productId,
+            SELECT
+                oi.product.id,
                 SUM(oi.quantity),
                 SUM(oi.quantity * oi.price),
                 COUNT(oi)
             FROM OrderItemEntity oi
-            WHERE oi.productId = :productId
-            GROUP BY oi.productId
+            WHERE oi.product.id = :productId
+            GROUP BY oi.product.id
         """)
-        
+
         query.setParameter("productId", productId.value)
-        
+
         @Suppress("UNCHECKED_CAST")
         val result = query.resultList as List<Array<Any>>
         if (result.isEmpty()) return null
-        
+
         val row = result[0]
         return ProductSalesStatistics(
             productId = ProductId(row[0] as Long),
@@ -111,4 +134,3 @@ class JpaOrderItemRepository(private val em: EntityManager) : OrderItemRepositor
         )
     }
 }
-

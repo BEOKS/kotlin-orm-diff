@@ -9,18 +9,18 @@ import java.time.LocalDateTime
 class OrderEntity(
     @Id
     @Column(name = "id")
-    var id: Long = 0,
+    val id: Long = 0,
 
     @Column(name = "customer_id", nullable = false)
-    var customerId: Long = 0,
+    var customerId: Long,
 
     @Column(name = "order_date", nullable = false)
-    var orderDate: LocalDateTime = LocalDateTime.now(),
+    var orderDate: LocalDateTime,
 
     @Column(name = "total_amount", nullable = false, precision = 19, scale = 2)
-    var totalAmount: BigDecimal = BigDecimal.ZERO,
+    var totalAmount: BigDecimal,
 
     @Column(name = "status", nullable = false)
-    var status: String = ""
+    var status: String
 )
 

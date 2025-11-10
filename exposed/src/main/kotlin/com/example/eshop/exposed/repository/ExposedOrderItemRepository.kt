@@ -12,10 +12,13 @@ import com.example.eshop.exposed.table.OrderItems
 import com.example.eshop.exposed.table.Products
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.times
+import org.jetbrains.exposed.sql.transactions.transaction
+import java.math.BigDecimal
 
 class ExposedOrderItemRepository : OrderItemRepository {
 
-    override fun save(orderItem: OrderItem): OrderItem {
+    override fun save(orderItem: OrderItem): OrderItem = transaction {
         OrderItems.insert {
             it[id] = orderItem.id.value
             it[orderId] = orderItem.orderId.value
@@ -23,38 +26,41 @@ class ExposedOrderItemRepository : OrderItemRepository {
             it[quantity] = orderItem.quantity
             it[price] = orderItem.price.amount
         }
-        return orderItem
+        orderItem
     }
 
-    override fun findById(id: OrderItemId): OrderItem? {
-        return OrderItems.selectAll()
+    override fun findById(id: OrderItemId): OrderItem? = transaction {
+        OrderItems.selectAll()
             .where { OrderItems.id eq id.value }
             .map { it.toOrderItem() }
             .singleOrNull()
     }
 
-    override fun findAll(): List<OrderItem> {
-        return OrderItems.selectAll()
+    override fun findAll(): List<OrderItem> = transaction {
+        OrderItems.selectAll()
             .map { it.toOrderItem() }
     }
 
-    override fun update(orderItem: OrderItem): OrderItem {
-        OrderItems.update({ OrderItems.id eq orderItem.id.value }) {
+    override fun update(orderItem: OrderItem): OrderItem = transaction {
+        val updatedRows = OrderItems.update({ OrderItems.id eq orderItem.id.value }) {
             it[orderId] = orderItem.orderId.value
             it[productId] = orderItem.productId.value
             it[quantity] = orderItem.quantity
             it[price] = orderItem.price.amount
         }
-        return orderItem
+        if (updatedRows == 0) {
+            throw IllegalStateException("OrderItem with id ${orderItem.id.value} not found")
+        }
+        orderItem
     }
 
-    override fun delete(id: OrderItemId): Boolean {
+    override fun delete(id: OrderItemId): Boolean = transaction {
         val deleted = OrderItems.deleteWhere { OrderItems.id eq id.value }
-        return deleted > 0
+        deleted > 0
     }
 
-    override fun findByOrderIdWithProduct(orderId: OrderId): List<OrderItemWithProduct> {
-        return OrderItems
+    override fun findByOrderIdWithProduct(orderId: OrderId): List<OrderItemWithProduct> = transaction {
+        OrderItems
             .join(Products, JoinType.INNER, OrderItems.productId, Products.id)
             .selectAll()
             .where { OrderItems.orderId eq orderId.value }
@@ -73,28 +79,29 @@ class ExposedOrderItemRepository : OrderItemRepository {
             }
     }
 
-    override fun calculateProductSalesStatistics(productId: ProductId): ProductSalesStatistics? {
-        // Fetch all order items for the product and calculate in application code
-        val items = OrderItems.selectAll()
+    override fun calculateProductSalesStatistics(productId: ProductId): ProductSalesStatistics? = transaction {
+        val totalQuantityAlias = OrderItems.quantity.sum()
+        val orderCountAlias = OrderItems.id.count()
+
+        // Calculate total revenue using SQL: SUM(price * quantity)
+        // We need to cast quantity to decimal for multiplication
+        val quantityDecimal = OrderItems.quantity.castTo<BigDecimal>(DecimalColumnType(19, 2))
+        val revenueExpression = OrderItems.price.times(quantityDecimal)
+        val totalRevenueAlias = revenueExpression.sum()
+
+        OrderItems
+            .select(totalQuantityAlias, totalRevenueAlias, orderCountAlias)
             .where { OrderItems.productId eq productId.value }
-            .toList()
-        
-        if (items.isEmpty()) {
-            return null
-        }
-        
-        val totalQuantity = items.sumOf { it[OrderItems.quantity] }
-        val totalRevenue = items.fold(java.math.BigDecimal.ZERO) { acc, row ->
-            acc + (row[OrderItems.price] * java.math.BigDecimal.valueOf(row[OrderItems.quantity].toLong()))
-        }
-        val orderCount = items.size.toLong()
-        
-        return ProductSalesStatistics(
-            productId = productId,
-            totalQuantity = totalQuantity,
-            totalRevenue = Money(totalRevenue),
-            orderCount = orderCount
-        )
+            .firstOrNull()
+            ?.let { row ->
+                val totalQty = row[totalQuantityAlias] ?: return@transaction null
+                ProductSalesStatistics(
+                    productId = productId,
+                    totalQuantity = totalQty.toInt(),
+                    totalRevenue = Money(row[totalRevenueAlias] ?: BigDecimal.ZERO),
+                    orderCount = row[orderCountAlias]
+                )
+            }
     }
 
     private fun ResultRow.toOrderItem() = OrderItem(

@@ -11,14 +11,23 @@ class JpaCustomerRepository(private val em: EntityManager) : CustomerRepository 
 
     override fun save(customer: Customer): Customer {
         val entity = CustomerEntity(
-            id = customer.id.value,
+            id = 0, // Auto-generated
             name = customer.name,
             email = customer.email,
             address = customer.address,
             registeredDate = customer.registeredDate
         )
         em.persist(entity)
-        return customer
+        em.flush() // Ensure ID is generated
+
+        // Return new Customer with generated ID
+        return Customer(
+            id = CustomerId(entity.id),
+            name = customer.name,
+            email = customer.email,
+            address = customer.address,
+            registeredDate = customer.registeredDate
+        )
     }
 
     override fun findById(id: CustomerId): Customer? {
@@ -26,7 +35,13 @@ class JpaCustomerRepository(private val em: EntityManager) : CustomerRepository 
     }
 
     override fun findAll(): List<Customer> {
-        return em.createQuery("SELECT c FROM CustomerEntity c", CustomerEntity::class.java)
+        return findAll(page = 0, size = Int.MAX_VALUE)
+    }
+
+    fun findAll(page: Int = 0, size: Int = 20): List<Customer> {
+        return em.createQuery("SELECT c FROM CustomerEntity c ORDER BY c.id", CustomerEntity::class.java)
+            .setFirstResult(page * size)
+            .setMaxResults(size)
             .resultList
             .map { it.toDomain() }
     }
@@ -34,12 +49,13 @@ class JpaCustomerRepository(private val em: EntityManager) : CustomerRepository 
     override fun update(customer: Customer): Customer {
         val entity = em.find(CustomerEntity::class.java, customer.id.value)
             ?: throw IllegalArgumentException("Customer not found: ${customer.id.value}")
-        
+
+        // Dirty checking - no need for merge()
         entity.name = customer.name
         entity.email = customer.email
         entity.address = customer.address
         entity.registeredDate = customer.registeredDate
-        em.merge(entity)
+
         return customer
     }
 
@@ -52,11 +68,11 @@ class JpaCustomerRepository(private val em: EntityManager) : CustomerRepository 
     override fun findCustomersWithHighValueOrders(minAmount: Money): List<Customer> {
         val query = em.createQuery("""
             SELECT c FROM CustomerEntity c
-            JOIN OrderEntity o ON c.id = o.customerId
-            GROUP BY c.id, c.name, c.email, c.address, c.registeredDate
+            JOIN c.orders o
+            GROUP BY c.id
             HAVING SUM(o.totalAmount) >= :minAmount
         """, CustomerEntity::class.java)
-        
+
         query.setParameter("minAmount", minAmount.amount)
         return query.resultList.map { it.toDomain() }
     }
@@ -64,10 +80,10 @@ class JpaCustomerRepository(private val em: EntityManager) : CustomerRepository 
     override fun findCustomersWithOrdersInPeriod(startDate: String, endDate: String): List<Customer> {
         val query = em.createQuery("""
             SELECT DISTINCT c FROM CustomerEntity c
-            JOIN OrderEntity o ON c.id = o.customerId
+            JOIN c.orders o
             WHERE c.registeredDate BETWEEN :startDate AND :endDate
         """, CustomerEntity::class.java)
-        
+
         query.setParameter("startDate", java.time.LocalDate.parse(startDate))
         query.setParameter("endDate", java.time.LocalDate.parse(endDate))
         return query.resultList.map { it.toDomain() }
@@ -83,4 +99,3 @@ class JpaCustomerRepository(private val em: EntityManager) : CustomerRepository 
         )
     }
 }
-

@@ -45,7 +45,7 @@ class JpaCustomerRepositoryTest {
     fun `should save and find customer by id`() {
         // Given
         val customer = Customer(
-            id = CustomerId(1L),
+            id = CustomerId(1), // Temporary ID, will be replaced
             name = "John Doe",
             email = "john@example.com",
             address = "123 Main St",
@@ -53,29 +53,30 @@ class JpaCustomerRepositoryTest {
         )
 
         // When
-        repository.save(customer)
+        val saved = repository.save(customer)
         em.flush()
-        val found = repository.findById(CustomerId(1L))
+        val found = repository.findById(saved.id)
 
         // Then
         Assertions.assertNotNull(found)
-        Assertions.assertEquals(customer.name, found?.name)
-        Assertions.assertEquals(customer.email, found?.email)
-        println("✓ Customer saved and retrieved: ${found?.name}")
+        Assertions.assertTrue(saved.id.value > 0)
+        Assertions.assertEquals(saved.name, found?.name)
+        Assertions.assertEquals(saved.email, found?.email)
+        println("Customer saved and retrieved: ${found?.name} (ID: ${saved.id.value})")
     }
 
     @Test
     fun `should find all customers`() {
         // Given
         val customer1 = Customer(
-            id = CustomerId(1L),
+            id = CustomerId(1),
             name = "John Doe",
             email = "john@example.com",
             address = "123 Main St",
             registeredDate = LocalDate.now()
         )
         val customer2 = Customer(
-            id = CustomerId(2L),
+            id = CustomerId(2),
             name = "Jane Smith",
             email = "jane@example.com",
             address = "456 Oak Ave",
@@ -90,55 +91,55 @@ class JpaCustomerRepositoryTest {
 
         // Then
         Assertions.assertEquals(2, all.size)
-        println("✓ Found ${all.size} customers")
+        println("Found ${all.size} customers")
     }
 
     @Test
     fun `should update customer`() {
         // Given
         val customer = Customer(
-            id = CustomerId(1L),
+            id = CustomerId(1),
             name = "John Doe",
             email = "john@example.com",
             address = "123 Main St",
             registeredDate = LocalDate.now()
         )
-        repository.save(customer)
+        val saved = repository.save(customer)
         em.flush()
 
         // When
-        val updated = customer.copy(name = "John Updated")
+        val updated = saved.copy(name = "John Updated")
         repository.update(updated)
         em.flush()
-        val found = repository.findById(CustomerId(1L))
+        val found = repository.findById(saved.id)
 
         // Then
         Assertions.assertEquals("John Updated", found?.name)
-        println("✓ Customer updated: ${found?.name}")
+        println("Customer updated: ${found?.name}")
     }
 
     @Test
     fun `should delete customer`() {
         // Given
         val customer = Customer(
-            id = CustomerId(1L),
+            id = CustomerId(1),
             name = "John Doe",
             email = "john@example.com",
             address = "123 Main St",
             registeredDate = LocalDate.now()
         )
-        repository.save(customer)
+        val saved = repository.save(customer)
         em.flush()
 
         // When
-        val deleted = repository.delete(CustomerId(1L))
+        val deleted = repository.delete(saved.id)
         em.flush()
-        val found = repository.findById(CustomerId(1L))
+        val found = repository.findById(saved.id)
 
         // Then
         Assertions.assertTrue(deleted)
         Assertions.assertNull(found)
-        println("✓ Customer deleted successfully")
+        println("Customer deleted successfully")
     }
 
     @Test
@@ -152,13 +153,13 @@ class JpaCustomerRepositoryTest {
 
         // Then
         Assertions.assertTrue(customers.isNotEmpty())
-        println("✓ Found ${customers.size} customers with high value orders")
+        println("Found ${customers.size} customers with high value orders")
         customers.forEach { println("  - ${it.name} (${it.email})") }
     }
 
     private fun setupCustomersWithOrders() {
-        repository.save(Customer(
-            id = CustomerId(1L),
+        val saved = repository.save(Customer(
+            id = CustomerId(1),
             name = "High Value Customer",
             email = "high@example.com",
             address = "789 Luxury Blvd",
@@ -166,14 +167,13 @@ class JpaCustomerRepositoryTest {
         ))
 
         em.createNativeQuery("""
-            INSERT INTO orders (id, customer_id, order_date, total_amount, status) 
-            VALUES (1, 1, '2024-06-01 10:00:00', 500.00, 'DELIVERED')
+            INSERT INTO orders (id, customer_id, order_date, total_amount, status, version)
+            VALUES (1, ${saved.id.value}, '2024-06-01 10:00:00', 500.00, 'DELIVERED', 0)
         """).executeUpdate()
-        
+
         em.createNativeQuery("""
-            INSERT INTO orders (id, customer_id, order_date, total_amount, status) 
-            VALUES (2, 1, '2024-06-15 14:30:00', 800.00, 'DELIVERED')
+            INSERT INTO orders (id, customer_id, order_date, total_amount, status, version)
+            VALUES (2, ${saved.id.value}, '2024-06-15 14:30:00', 800.00, 'DELIVERED', 0)
         """).executeUpdate()
     }
 }
-

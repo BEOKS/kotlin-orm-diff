@@ -5,4 +5,5 @@ include("jooq")
 include("jpa")
 include("exposed")
 include("querydsl")
+include("spring-data-jpa")
 

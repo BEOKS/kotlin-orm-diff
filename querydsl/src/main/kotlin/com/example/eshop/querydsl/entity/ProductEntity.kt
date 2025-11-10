@@ -8,18 +8,18 @@ import java.math.BigDecimal
 class ProductEntity(
     @Id
     @Column(name = "id")
-    var id: Long = 0,
+    val id: Long = 0,
 
     @Column(name = "name", nullable = false)
-    var name: String = "",
+    var name: String,
 
     @Column(name = "price", nullable = false, precision = 19, scale = 2)
-    var price: BigDecimal = BigDecimal.ZERO,
+    var price: BigDecimal,
 
     @Column(name = "stock", nullable = false)
-    var stock: Int = 0,
+    var stock: Int,
 
     @Column(name = "category", nullable = false)
-    var category: String = ""
+    var category: String
 )
 
