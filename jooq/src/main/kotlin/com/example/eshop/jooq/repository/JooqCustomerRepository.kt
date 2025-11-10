@@ -4,134 +4,111 @@ import com.example.eshop.domain.entity.Customer
 import com.example.eshop.domain.repository.CustomerRepository
 import com.example.eshop.domain.valueobject.CustomerId
 import com.example.eshop.domain.valueobject.Money
-import com.example.eshop.jooq.schema.CustomerFields
-import com.example.eshop.jooq.schema.OrderFields
-import com.example.eshop.jooq.schema.Tables
+import com.example.eshop.jooq.generated.tables.references.CUSTOMER
+import com.example.eshop.jooq.generated.tables.references.ORDERS
 import org.jooq.DSLContext
 import org.jooq.impl.DSL
-import java.math.BigDecimal
 import java.time.LocalDate
 
 class JooqCustomerRepository(private val dsl: DSLContext) : CustomerRepository {
 
     override fun save(customer: Customer): Customer {
-        dsl.insertInto(DSL.table(Tables.CUSTOMER))
-            .set(DSL.field(CustomerFields.ID), customer.id.value)
-            .set(DSL.field(CustomerFields.NAME), customer.name)
-            .set(DSL.field(CustomerFields.EMAIL), customer.email)
-            .set(DSL.field(CustomerFields.ADDRESS), customer.address)
-            .set(DSL.field(CustomerFields.REGISTERED_DATE), customer.registeredDate)
+        dsl.insertInto(CUSTOMER)
+            .set(CUSTOMER.ID, customer.id.value)
+            .set(CUSTOMER.NAME, customer.name)
+            .set(CUSTOMER.EMAIL, customer.email)
+            .set(CUSTOMER.ADDRESS, customer.address)
+            .set(CUSTOMER.REGISTERED_DATE, customer.registeredDate)
             .execute()
         return customer
     }
 
     override fun findById(id: CustomerId): Customer? {
-        val cId = DSL.field(CustomerFields.ID, Long::class.java)
-        val cName = DSL.field(CustomerFields.NAME, String::class.java)
-        val cEmail = DSL.field(CustomerFields.EMAIL, String::class.java)
-        val cAddress = DSL.field(CustomerFields.ADDRESS, String::class.java)
-        val cRegDate = DSL.field(CustomerFields.REGISTERED_DATE, LocalDate::class.java)
-        
-        return dsl.select(cId, cName, cEmail, cAddress, cRegDate)
-            .from(Tables.CUSTOMER)
-            .where(cId.eq(id.value))
+        return dsl.select(CUSTOMER.ID, CUSTOMER.NAME, CUSTOMER.EMAIL, CUSTOMER.ADDRESS, CUSTOMER.REGISTERED_DATE)
+            .from(CUSTOMER)
+            .where(CUSTOMER.ID.eq(id.value))
             .fetchOne()
             ?.let { record ->
                 Customer(
-                    id = CustomerId(record.getValue(cId)),
-                    name = record.getValue(cName),
-                    email = record.getValue(cEmail),
-                    address = record.getValue(cAddress),
-                    registeredDate = record.getValue(cRegDate)
+                    id = CustomerId(record.getValue(CUSTOMER.ID)!!),
+                    name = record.getValue(CUSTOMER.NAME)!!,
+                    email = record.getValue(CUSTOMER.EMAIL)!!,
+                    address = record.getValue(CUSTOMER.ADDRESS)!!,
+                    registeredDate = record.getValue(CUSTOMER.REGISTERED_DATE)!!
                 )
             }
     }
 
     override fun findAll(): List<Customer> {
-        val cId = DSL.field(CustomerFields.ID, Long::class.java)
-        val cName = DSL.field(CustomerFields.NAME, String::class.java)
-        val cEmail = DSL.field(CustomerFields.EMAIL, String::class.java)
-        val cAddress = DSL.field(CustomerFields.ADDRESS, String::class.java)
-        val cRegDate = DSL.field(CustomerFields.REGISTERED_DATE, LocalDate::class.java)
-        
-        return dsl.select(cId, cName, cEmail, cAddress, cRegDate)
-            .from(Tables.CUSTOMER)
+        return dsl.select(CUSTOMER.ID, CUSTOMER.NAME, CUSTOMER.EMAIL, CUSTOMER.ADDRESS, CUSTOMER.REGISTERED_DATE)
+            .from(CUSTOMER)
             .fetch()
             .map { record ->
                 Customer(
-                    id = CustomerId(record.getValue(cId)),
-                    name = record.getValue(cName),
-                    email = record.getValue(cEmail),
-                    address = record.getValue(cAddress),
-                    registeredDate = record.getValue(cRegDate)
+                    id = CustomerId(record.getValue(CUSTOMER.ID)!!),
+                    name = record.getValue(CUSTOMER.NAME)!!,
+                    email = record.getValue(CUSTOMER.EMAIL)!!,
+                    address = record.getValue(CUSTOMER.ADDRESS)!!,
+                    registeredDate = record.getValue(CUSTOMER.REGISTERED_DATE)!!
                 )
             }
     }
 
     override fun update(customer: Customer): Customer {
-        dsl.update(DSL.table(Tables.CUSTOMER))
-            .set(DSL.field(CustomerFields.NAME), customer.name)
-            .set(DSL.field(CustomerFields.EMAIL), customer.email)
-            .set(DSL.field(CustomerFields.ADDRESS), customer.address)
-            .set(DSL.field(CustomerFields.REGISTERED_DATE), customer.registeredDate)
-            .where(DSL.field(CustomerFields.ID).eq(customer.id.value))
+        dsl.update(CUSTOMER)
+            .set(CUSTOMER.NAME, customer.name)
+            .set(CUSTOMER.EMAIL, customer.email)
+            .set(CUSTOMER.ADDRESS, customer.address)
+            .set(CUSTOMER.REGISTERED_DATE, customer.registeredDate)
+            .where(CUSTOMER.ID.eq(customer.id.value))
             .execute()
         return customer
     }
 
     override fun delete(id: CustomerId): Boolean {
-        val deleted = dsl.deleteFrom(DSL.table(Tables.CUSTOMER))
-            .where(DSL.field(CustomerFields.ID).eq(id.value))
+        val deleted = dsl.deleteFrom(CUSTOMER)
+            .where(CUSTOMER.ID.eq(id.value))
             .execute()
         return deleted > 0
     }
 
     override fun findCustomersWithHighValueOrders(minAmount: Money): List<Customer> {
-        val cId = DSL.field("c.${CustomerFields.ID}", Long::class.java)
-        val cName = DSL.field("c.${CustomerFields.NAME}", String::class.java)
-        val cEmail = DSL.field("c.${CustomerFields.EMAIL}", String::class.java)
-        val cAddress = DSL.field("c.${CustomerFields.ADDRESS}", String::class.java)
-        val cRegDate = DSL.field("c.${CustomerFields.REGISTERED_DATE}", LocalDate::class.java)
-        val oTotalAmount = DSL.field("o.${OrderFields.TOTAL_AMOUNT}", BigDecimal::class.java)
+        val c = CUSTOMER.`as`("c")
+        val o = ORDERS.`as`("o")
 
-        return dsl.select(cId, cName, cEmail, cAddress, cRegDate)
-            .from("${Tables.CUSTOMER} c")
-            .join("${Tables.ORDER} o")
-            .on("c.${CustomerFields.ID} = o.${OrderFields.CUSTOMER_ID}")
-            .groupBy(cId, cName, cEmail, cAddress, cRegDate)
-            .having(DSL.sum(oTotalAmount).ge(minAmount.amount))
+        return dsl.select(c.ID, c.NAME, c.EMAIL, c.ADDRESS, c.REGISTERED_DATE)
+            .from(c)
+            .join(o).on(c.ID.eq(o.CUSTOMER_ID))
+            .groupBy(c.ID, c.NAME, c.EMAIL, c.ADDRESS, c.REGISTERED_DATE)
+            .having(DSL.sum(o.TOTAL_AMOUNT).ge(minAmount.amount))
             .fetch()
             .map { record ->
                 Customer(
-                    id = CustomerId(record.getValue(cId)),
-                    name = record.getValue(cName),
-                    email = record.getValue(cEmail),
-                    address = record.getValue(cAddress),
-                    registeredDate = record.getValue(cRegDate)
+                    id = CustomerId(record.getValue(c.ID)!!),
+                    name = record.getValue(c.NAME)!!,
+                    email = record.getValue(c.EMAIL)!!,
+                    address = record.getValue(c.ADDRESS)!!,
+                    registeredDate = record.getValue(c.REGISTERED_DATE)!!
                 )
             }
     }
 
     override fun findCustomersWithOrdersInPeriod(startDate: String, endDate: String): List<Customer> {
-        val cId = DSL.field("c.${CustomerFields.ID}", Long::class.java)
-        val cName = DSL.field("c.${CustomerFields.NAME}", String::class.java)
-        val cEmail = DSL.field("c.${CustomerFields.EMAIL}", String::class.java)
-        val cAddress = DSL.field("c.${CustomerFields.ADDRESS}", String::class.java)
-        val cRegDate = DSL.field("c.${CustomerFields.REGISTERED_DATE}", LocalDate::class.java)
+        val c = CUSTOMER.`as`("c")
+        val o = ORDERS.`as`("o")
 
-        return dsl.selectDistinct(cId, cName, cEmail, cAddress, cRegDate)
-            .from("${Tables.CUSTOMER} c")
-            .join("${Tables.ORDER} o")
-            .on("c.${CustomerFields.ID} = o.${OrderFields.CUSTOMER_ID}")
-            .where(cRegDate.between(LocalDate.parse(startDate), LocalDate.parse(endDate)))
+        return dsl.selectDistinct(c.ID, c.NAME, c.EMAIL, c.ADDRESS, c.REGISTERED_DATE)
+            .from(c)
+            .join(o).on(c.ID.eq(o.CUSTOMER_ID))
+            .where(c.REGISTERED_DATE.between(LocalDate.parse(startDate), LocalDate.parse(endDate)))
             .fetch()
             .map { record ->
                 Customer(
-                    id = CustomerId(record.getValue(cId)),
-                    name = record.getValue(cName),
-                    email = record.getValue(cEmail),
-                    address = record.getValue(cAddress),
-                    registeredDate = record.getValue(cRegDate)
+                    id = CustomerId(record.getValue(c.ID)!!),
+                    name = record.getValue(c.NAME)!!,
+                    email = record.getValue(c.EMAIL)!!,
+                    address = record.getValue(c.ADDRESS)!!,
+                    registeredDate = record.getValue(c.REGISTERED_DATE)!!
                 )
             }
     }

@@ -1,5 +1,6 @@
 plugins {
     kotlin("jvm")
+    id("nu.studer.jooq") version "9.0"
 }
 
 val jooqVersion: String by project
@@ -16,10 +17,63 @@ dependencies {
     
     // Database
     implementation("com.h2database:h2:$h2Version")
+    jooqGenerator("com.h2database:h2:$h2Version")
     
     // Test dependencies
     testImplementation("org.junit.jupiter:junit-jupiter:$junitVersion")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     testImplementation("ch.qos.logback:logback-classic:$logbackVersion")
+}
+
+jooq {
+    version.set(jooqVersion)
+    
+    configurations {
+        create("main") {
+            jooqConfiguration.apply {
+                jdbc.apply {
+                    driver = "org.h2.Driver"
+                    url = "jdbc:h2:mem:testdb;MODE=PostgreSQL;INIT=RUNSCRIPT FROM 'src/test/resources/schema.sql'"
+                    user = "sa"
+                    password = ""
+                }
+                generator.apply {
+                    name = "org.jooq.codegen.KotlinGenerator"
+                    database.apply {
+                        name = "org.jooq.meta.h2.H2Database"
+                        inputSchema = "PUBLIC"
+                        excludes = "INFORMATION_SCHEMA.*"
+                    }
+                    target.apply {
+                        packageName = "com.example.eshop.jooq.generated"
+                        directory = "src/main/generated"
+                    }
+                    generate.apply {
+                        isDeprecated = false
+                        isRecords = true
+                        isImmutablePojos = true
+                        isFluentSetters = true
+                        isKotlinNotNullPojoAttributes = true
+                        isKotlinNotNullRecordAttributes = true
+                        isKotlinNotNullInterfaceAttributes = true
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Add generated sources to main source set
+sourceSets {
+    main {
+        java {
+            srcDir("src/main/generated")
+        }
+    }
+}
+
+// Make sure compileKotlin depends on generateJooq
+tasks.named("compileKotlin") {
+    dependsOn("generateJooq")
 }
 

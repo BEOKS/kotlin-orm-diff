@@ -137,6 +137,73 @@ class ExposedPaymentRepository : PaymentRepository {
             }
     }
 
+    override fun findPremiumCustomersWithUnion(
+        minTotalAmount: Money,
+        minPaymentCount: Long
+    ): List<PremiumCustomerInfo> {
+        // Exposed는 union()과 unionAll() 메서드를 지원합니다.
+        // https://www.jetbrains.com/help/exposed/dsl-joining-tables.html#union
+        
+        val totalAmountAlias = Payments.amount.sum()
+        val paymentCountAlias = Payments.id.count()
+        
+        // 첫 번째 쿼리: 고액 결제자 (총 결제 금액이 minTotalAmount 이상)
+        val highValueQuery = Customers
+            .join(Orders, JoinType.INNER, Customers.id, Orders.customerId)
+            .join(Payments, JoinType.INNER, Orders.id, Payments.orderId)
+            .select(
+                Customers.id,
+                Customers.name,
+                Customers.email,
+                totalAmountAlias,
+                paymentCountAlias
+            )
+            .where { Payments.status eq PaymentStatus.COMPLETED.name }
+            .groupBy(Customers.id, Customers.name, Customers.email)
+            .having { totalAmountAlias greaterEq minTotalAmount.amount }
+        
+        // 두 번째 쿼리: 빈번한 결제자 (결제 횟수가 minPaymentCount 이상)
+        val frequentPayerQuery = Customers
+            .join(Orders, JoinType.INNER, Customers.id, Orders.customerId)
+            .join(Payments, JoinType.INNER, Orders.id, Payments.orderId)
+            .select(
+                Customers.id,
+                Customers.name,
+                Customers.email,
+                totalAmountAlias,
+                paymentCountAlias
+            )
+            .where { Payments.status eq PaymentStatus.COMPLETED.name }
+            .groupBy(Customers.id, Customers.name, Customers.email)
+            .having { paymentCountAlias greaterEq minPaymentCount }
+        
+        // UNION: 중복을 제거하고 두 쿼리 결과를 결합
+        return highValueQuery.union(frequentPayerQuery)
+            .map { row ->
+                val totalAmount = Money(row[totalAmountAlias] ?: java.math.BigDecimal.ZERO)
+                val payCount = row[paymentCountAlias]
+                
+                // customerType 판단: 두 조건을 모두 만족하면 BOTH
+                val customerType = when {
+                    totalAmount.amount >= minTotalAmount.amount && payCount >= minPaymentCount -> 
+                        PremiumCustomerType.BOTH
+                    totalAmount.amount >= minTotalAmount.amount -> 
+                        PremiumCustomerType.HIGH_VALUE
+                    else -> 
+                        PremiumCustomerType.FREQUENT_PAYER
+                }
+                
+                PremiumCustomerInfo(
+                    customerId = row[Customers.id],
+                    customerName = row[Customers.name],
+                    customerEmail = row[Customers.email],
+                    totalPaymentAmount = totalAmount,
+                    paymentCount = payCount,
+                    customerType = customerType
+                )
+            }
+    }
+
     private fun ResultRow.toPayment() = Payment(
         id = PaymentId(this[Payments.id]),
         orderId = OrderId(this[Payments.orderId]),

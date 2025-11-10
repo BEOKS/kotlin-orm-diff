@@ -107,6 +107,35 @@ class JooqPaymentRepositoryTest {
         }
     }
 
+    @Test
+    fun `should find premium customers using UNION with jOOQ`() {
+        // Given
+        setupPremiumCustomersData()
+
+        // When
+        val minTotalAmount = Money(1000.00)
+        val minPaymentCount = 3L
+        val premiumCustomers = repository.findPremiumCustomersWithUnion(minTotalAmount, minPaymentCount)
+
+        // Then
+        Assertions.assertTrue(premiumCustomers.isNotEmpty())
+        println("✓ [jOOQ] Premium customers (UNION of high-value and frequent payers):")
+        premiumCustomers.forEach { customer ->
+            println("  - ${customer.customerName} (${customer.customerEmail})")
+            println("    Type: ${customer.customerType}")
+            println("    Total Payments: $${customer.totalPaymentAmount}")
+            println("    Payment Count: ${customer.paymentCount}")
+            println()
+        }
+        
+        // Verify that we have customers of different types
+        val hasHighValue = premiumCustomers.any { it.customerType == com.example.eshop.domain.repository.PremiumCustomerType.HIGH_VALUE || it.customerType == com.example.eshop.domain.repository.PremiumCustomerType.BOTH }
+        val hasFrequentPayer = premiumCustomers.any { it.customerType == com.example.eshop.domain.repository.PremiumCustomerType.FREQUENT_PAYER || it.customerType == com.example.eshop.domain.repository.PremiumCustomerType.BOTH }
+        
+        Assertions.assertTrue(hasHighValue, "Should have high-value customers")
+        Assertions.assertTrue(hasFrequentPayer, "Should have frequent payers")
+    }
+
     private fun setupCustomerAndOrder() {
         dsl.execute("""
             INSERT INTO customer (id, name, email, address, registered_date) 
@@ -166,6 +195,52 @@ class JooqPaymentRepositoryTest {
             INSERT INTO payment (id, order_id, amount, payment_date, method, status) 
             VALUES (1, 1, 500.00, '2024-06-01 10:05:00', 'CREDIT_CARD', 'FAILED')
         """)
+    }
+
+    private fun setupPremiumCustomersData() {
+        // Customer 1: High-value payer (총 금액 높음, 횟수 적음)
+        dsl.execute("INSERT INTO customer (id, name, email, address, registered_date) VALUES (1, 'High-Value Customer', 'highvalue@example.com', '123 Luxury St', '2024-01-01')")
+        
+        // Customer 2: Frequent payer (총 금액 낮음, 횟수 많음)
+        dsl.execute("INSERT INTO customer (id, name, email, address, registered_date) VALUES (2, 'Frequent Payer', 'frequent@example.com', '456 Regular Ave', '2024-01-15')")
+        
+        // Customer 3: Both (총 금액 높음, 횟수 많음)
+        dsl.execute("INSERT INTO customer (id, name, email, address, registered_date) VALUES (3, 'Premium Customer', 'premium@example.com', '789 Elite Blvd', '2024-02-01')")
+        
+        // Customer 4: Regular (둘 다 해당 안됨)
+        dsl.execute("INSERT INTO customer (id, name, email, address, registered_date) VALUES (4, 'Regular Customer', 'regular@example.com', '321 Normal St', '2024-02-15')")
+
+        // Customer 1: 2 large payments (total 1500.00)
+        dsl.execute("INSERT INTO orders (id, customer_id, order_date, total_amount, status) VALUES (1, 1, '2024-06-01 10:00:00', 800.00, 'DELIVERED')")
+        dsl.execute("INSERT INTO orders (id, customer_id, order_date, total_amount, status) VALUES (2, 1, '2024-06-02 10:00:00', 700.00, 'DELIVERED')")
+        dsl.execute("INSERT INTO payment (id, order_id, amount, payment_date, method, status) VALUES (1, 1, 800.00, '2024-06-01 10:05:00', 'CREDIT_CARD', 'COMPLETED')")
+        dsl.execute("INSERT INTO payment (id, order_id, amount, payment_date, method, status) VALUES (2, 2, 700.00, '2024-06-02 10:05:00', 'CREDIT_CARD', 'COMPLETED')")
+
+        // Customer 2: 4 small payments (total 400.00)
+        dsl.execute("INSERT INTO orders (id, customer_id, order_date, total_amount, status) VALUES (3, 2, '2024-06-03 10:00:00', 100.00, 'DELIVERED')")
+        dsl.execute("INSERT INTO orders (id, customer_id, order_date, total_amount, status) VALUES (4, 2, '2024-06-04 10:00:00', 100.00, 'DELIVERED')")
+        dsl.execute("INSERT INTO orders (id, customer_id, order_date, total_amount, status) VALUES (5, 2, '2024-06-05 10:00:00', 100.00, 'DELIVERED')")
+        dsl.execute("INSERT INTO orders (id, customer_id, order_date, total_amount, status) VALUES (6, 2, '2024-06-06 10:00:00', 100.00, 'DELIVERED')")
+        dsl.execute("INSERT INTO payment (id, order_id, amount, payment_date, method, status) VALUES (3, 3, 100.00, '2024-06-03 10:05:00', 'PAYPAL', 'COMPLETED')")
+        dsl.execute("INSERT INTO payment (id, order_id, amount, payment_date, method, status) VALUES (4, 4, 100.00, '2024-06-04 10:05:00', 'PAYPAL', 'COMPLETED')")
+        dsl.execute("INSERT INTO payment (id, order_id, amount, payment_date, method, status) VALUES (5, 5, 100.00, '2024-06-05 10:05:00', 'PAYPAL', 'COMPLETED')")
+        dsl.execute("INSERT INTO payment (id, order_id, amount, payment_date, method, status) VALUES (6, 6, 100.00, '2024-06-06 10:05:00', 'PAYPAL', 'COMPLETED')")
+
+        // Customer 3: 5 medium payments (total 2000.00)
+        dsl.execute("INSERT INTO orders (id, customer_id, order_date, total_amount, status) VALUES (7, 3, '2024-06-07 10:00:00', 400.00, 'DELIVERED')")
+        dsl.execute("INSERT INTO orders (id, customer_id, order_date, total_amount, status) VALUES (8, 3, '2024-06-08 10:00:00', 400.00, 'DELIVERED')")
+        dsl.execute("INSERT INTO orders (id, customer_id, order_date, total_amount, status) VALUES (9, 3, '2024-06-09 10:00:00', 400.00, 'DELIVERED')")
+        dsl.execute("INSERT INTO orders (id, customer_id, order_date, total_amount, status) VALUES (10, 3, '2024-06-10 10:00:00', 400.00, 'DELIVERED')")
+        dsl.execute("INSERT INTO orders (id, customer_id, order_date, total_amount, status) VALUES (11, 3, '2024-06-11 10:00:00', 400.00, 'DELIVERED')")
+        dsl.execute("INSERT INTO payment (id, order_id, amount, payment_date, method, status) VALUES (7, 7, 400.00, '2024-06-07 10:05:00', 'CREDIT_CARD', 'COMPLETED')")
+        dsl.execute("INSERT INTO payment (id, order_id, amount, payment_date, method, status) VALUES (8, 8, 400.00, '2024-06-08 10:05:00', 'CREDIT_CARD', 'COMPLETED')")
+        dsl.execute("INSERT INTO payment (id, order_id, amount, payment_date, method, status) VALUES (9, 9, 400.00, '2024-06-09 10:05:00', 'CREDIT_CARD', 'COMPLETED')")
+        dsl.execute("INSERT INTO payment (id, order_id, amount, payment_date, method, status) VALUES (10, 10, 400.00, '2024-06-10 10:05:00', 'CREDIT_CARD', 'COMPLETED')")
+        dsl.execute("INSERT INTO payment (id, order_id, amount, payment_date, method, status) VALUES (11, 11, 400.00, '2024-06-11 10:05:00', 'CREDIT_CARD', 'COMPLETED')")
+
+        // Customer 4: 1 small payment (total 50.00) - should not appear in results
+        dsl.execute("INSERT INTO orders (id, customer_id, order_date, total_amount, status) VALUES (12, 4, '2024-06-12 10:00:00', 50.00, 'DELIVERED')")
+        dsl.execute("INSERT INTO payment (id, order_id, amount, payment_date, method, status) VALUES (12, 12, 50.00, '2024-06-12 10:05:00', 'BANK_TRANSFER', 'COMPLETED')")
     }
 }
 

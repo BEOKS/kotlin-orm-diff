@@ -3,118 +3,100 @@ package com.example.eshop.jooq.repository
 import com.example.eshop.domain.entity.Payment
 import com.example.eshop.domain.repository.*
 import com.example.eshop.domain.valueobject.*
-import com.example.eshop.jooq.schema.*
+import com.example.eshop.jooq.generated.tables.references.PAYMENT
+import com.example.eshop.jooq.generated.tables.references.ORDERS
+import com.example.eshop.jooq.generated.tables.references.CUSTOMER
 import org.jooq.DSLContext
 import org.jooq.impl.DSL
 import java.math.BigDecimal
-import java.time.LocalDateTime
 
 class JooqPaymentRepository(private val dsl: DSLContext) : PaymentRepository {
 
     override fun save(payment: Payment): Payment {
-        dsl.insertInto(DSL.table(Tables.PAYMENT))
-            .set(DSL.field(PaymentFields.ID), payment.id.value)
-            .set(DSL.field(PaymentFields.ORDER_ID), payment.orderId.value)
-            .set(DSL.field(PaymentFields.AMOUNT), payment.amount.amount)
-            .set(DSL.field(PaymentFields.PAYMENT_DATE), payment.paymentDate)
-            .set(DSL.field(PaymentFields.METHOD), payment.method.name)
-            .set(DSL.field(PaymentFields.STATUS), payment.status.name)
+        dsl.insertInto(PAYMENT)
+            .set(PAYMENT.ID, payment.id.value)
+            .set(PAYMENT.ORDER_ID, payment.orderId.value)
+            .set(PAYMENT.AMOUNT, payment.amount.amount)
+            .set(PAYMENT.PAYMENT_DATE, payment.paymentDate)
+            .set(PAYMENT.METHOD, payment.method.name)
+            .set(PAYMENT.STATUS, payment.status.name)
             .execute()
         return payment
     }
 
     override fun findById(id: PaymentId): Payment? {
-        val pId = DSL.field(PaymentFields.ID, Long::class.java)
-        val pOrderId = DSL.field(PaymentFields.ORDER_ID, Long::class.java)
-        val pAmount = DSL.field(PaymentFields.AMOUNT, BigDecimal::class.java)
-        val pPaymentDate = DSL.field(PaymentFields.PAYMENT_DATE, LocalDateTime::class.java)
-        val pMethod = DSL.field(PaymentFields.METHOD, String::class.java)
-        val pStatus = DSL.field(PaymentFields.STATUS, String::class.java)
-        
-        return dsl.select(pId, pOrderId, pAmount, pPaymentDate, pMethod, pStatus)
-            .from(Tables.PAYMENT)
-            .where(pId.eq(id.value))
+        return dsl.select(PAYMENT.ID, PAYMENT.ORDER_ID, PAYMENT.AMOUNT, PAYMENT.PAYMENT_DATE, PAYMENT.METHOD, PAYMENT.STATUS)
+            .from(PAYMENT)
+            .where(PAYMENT.ID.eq(id.value))
             .fetchOne()
             ?.let { record ->
                 Payment(
-                    id = PaymentId(record.getValue(pId)),
-                    orderId = OrderId(record.getValue(pOrderId)),
-                    amount = Money(record.getValue(pAmount)),
-                    paymentDate = record.getValue(pPaymentDate),
-                    method = PaymentMethod.valueOf(record.getValue(pMethod)),
-                    status = PaymentStatus.valueOf(record.getValue(pStatus))
+                    id = PaymentId(record.getValue(PAYMENT.ID)!!),
+                    orderId = OrderId(record.getValue(PAYMENT.ORDER_ID)!!),
+                    amount = Money(record.getValue(PAYMENT.AMOUNT)!!),
+                    paymentDate = record.getValue(PAYMENT.PAYMENT_DATE)!!,
+                    method = PaymentMethod.valueOf(record.getValue(PAYMENT.METHOD)!!),
+                    status = PaymentStatus.valueOf(record.getValue(PAYMENT.STATUS)!!)
                 )
             }
     }
 
     override fun findAll(): List<Payment> {
-        val pId = DSL.field(PaymentFields.ID, Long::class.java)
-        val pOrderId = DSL.field(PaymentFields.ORDER_ID, Long::class.java)
-        val pAmount = DSL.field(PaymentFields.AMOUNT, BigDecimal::class.java)
-        val pPaymentDate = DSL.field(PaymentFields.PAYMENT_DATE, LocalDateTime::class.java)
-        val pMethod = DSL.field(PaymentFields.METHOD, String::class.java)
-        val pStatus = DSL.field(PaymentFields.STATUS, String::class.java)
-        
-        return dsl.select(pId, pOrderId, pAmount, pPaymentDate, pMethod, pStatus)
-            .from(Tables.PAYMENT)
+        return dsl.select(PAYMENT.ID, PAYMENT.ORDER_ID, PAYMENT.AMOUNT, PAYMENT.PAYMENT_DATE, PAYMENT.METHOD, PAYMENT.STATUS)
+            .from(PAYMENT)
             .fetch()
             .map { record ->
                 Payment(
-                    id = PaymentId(record.getValue(pId)),
-                    orderId = OrderId(record.getValue(pOrderId)),
-                    amount = Money(record.getValue(pAmount)),
-                    paymentDate = record.getValue(pPaymentDate),
-                    method = PaymentMethod.valueOf(record.getValue(pMethod)),
-                    status = PaymentStatus.valueOf(record.getValue(pStatus))
+                    id = PaymentId(record.getValue(PAYMENT.ID)!!),
+                    orderId = OrderId(record.getValue(PAYMENT.ORDER_ID)!!),
+                    amount = Money(record.getValue(PAYMENT.AMOUNT)!!),
+                    paymentDate = record.getValue(PAYMENT.PAYMENT_DATE)!!,
+                    method = PaymentMethod.valueOf(record.getValue(PAYMENT.METHOD)!!),
+                    status = PaymentStatus.valueOf(record.getValue(PAYMENT.STATUS)!!)
                 )
             }
     }
 
     override fun update(payment: Payment): Payment {
-        dsl.update(DSL.table(Tables.PAYMENT))
-            .set(DSL.field(PaymentFields.ORDER_ID), payment.orderId.value)
-            .set(DSL.field(PaymentFields.AMOUNT), payment.amount.amount)
-            .set(DSL.field(PaymentFields.PAYMENT_DATE), payment.paymentDate)
-            .set(DSL.field(PaymentFields.METHOD), payment.method.name)
-            .set(DSL.field(PaymentFields.STATUS), payment.status.name)
-            .where(DSL.field(PaymentFields.ID).eq(payment.id.value))
+        dsl.update(PAYMENT)
+            .set(PAYMENT.ORDER_ID, payment.orderId.value)
+            .set(PAYMENT.AMOUNT, payment.amount.amount)
+            .set(PAYMENT.PAYMENT_DATE, payment.paymentDate)
+            .set(PAYMENT.METHOD, payment.method.name)
+            .set(PAYMENT.STATUS, payment.status.name)
+            .where(PAYMENT.ID.eq(payment.id.value))
             .execute()
         return payment
     }
 
     override fun delete(id: PaymentId): Boolean {
-        val deleted = dsl.deleteFrom(DSL.table(Tables.PAYMENT))
-            .where(DSL.field(PaymentFields.ID).eq(id.value))
+        val deleted = dsl.deleteFrom(PAYMENT)
+            .where(PAYMENT.ID.eq(id.value))
             .execute()
         return deleted > 0
     }
 
     override fun calculateCustomerOrderStatistics(): List<CustomerStatistics> {
-        val cId = DSL.field("c.${CustomerFields.ID}", Long::class.java)
-        val cName = DSL.field("c.${CustomerFields.NAME}", String::class.java)
-        val pAmount = DSL.field("p.${PaymentFields.AMOUNT}", BigDecimal::class.java)
-        val pId = DSL.field("p.${PaymentFields.ID}", Long::class.java)
-        val oId = DSL.field("o.${OrderFields.ID}", Long::class.java)
-        val pStatus = DSL.field("p.${PaymentFields.STATUS}", String::class.java)
+        val c = CUSTOMER.`as`("c")
+        val o = ORDERS.`as`("o")
+        val p = PAYMENT.`as`("p")
         
-        val totalPay = DSL.sum(pAmount).`as`("total_payments")
-        val avgPay = DSL.avg(pAmount).`as`("avg_payment")
-        val payCnt = DSL.count(pId).`as`("payment_count")
-        val ordCnt = DSL.countDistinct(oId).`as`("order_count")
+        val totalPay = DSL.sum(p.AMOUNT).`as`("total_payments")
+        val avgPay = DSL.avg(p.AMOUNT).`as`("avg_payment")
+        val payCnt = DSL.count(p.ID).`as`("payment_count")
+        val ordCnt = DSL.countDistinct(o.ID).`as`("order_count")
 
-        return dsl.select(cId, cName, totalPay, avgPay, payCnt, ordCnt)
-            .from("${Tables.CUSTOMER} c")
-            .join("${Tables.ORDER} o")
-            .on("c.${CustomerFields.ID} = o.${OrderFields.CUSTOMER_ID}")
-            .join("${Tables.PAYMENT} p")
-            .on("o.${OrderFields.ID} = p.${PaymentFields.ORDER_ID}")
-            .where(pStatus.eq(PaymentStatus.COMPLETED.name))
-            .groupBy(cId, cName)
+        return dsl.select(c.ID, c.NAME, totalPay, avgPay, payCnt, ordCnt)
+            .from(c)
+            .join(o).on(c.ID.eq(o.CUSTOMER_ID))
+            .join(p).on(o.ID.eq(p.ORDER_ID))
+            .where(p.STATUS.eq(PaymentStatus.COMPLETED.name))
+            .groupBy(c.ID, c.NAME)
             .fetch()
             .map { record ->
                 CustomerStatistics(
-                    customerId = record.getValue(cId),
-                    customerName = record.getValue(cName),
+                    customerId = record.getValue(c.ID)!!,
+                    customerName = record.getValue(c.NAME)!!,
                     totalPayments = Money((record.get("total_payments", BigDecimal::class.java) ?: BigDecimal.ZERO).setScale(2, java.math.RoundingMode.HALF_UP)),
                     averagePayment = Money((record.get("avg_payment", BigDecimal::class.java) ?: BigDecimal.ZERO).setScale(2, java.math.RoundingMode.HALF_UP)),
                     paymentCount = record.get("payment_count", Long::class.java) ?: 0L,
@@ -124,19 +106,17 @@ class JooqPaymentRepository(private val dsl: DSLContext) : PaymentRepository {
     }
 
     override fun calculatePaymentMethodStatistics(): Map<PaymentMethod, PaymentMethodStats> {
-        val method = DSL.field(PaymentFields.METHOD, String::class.java)
-        val amount = DSL.field(PaymentFields.AMOUNT, BigDecimal::class.java)
-        val totalAmt = DSL.sum(amount).`as`("total_amount")
+        val totalAmt = DSL.sum(PAYMENT.AMOUNT).`as`("total_amount")
         val cnt = DSL.count().`as`("count")
-        val avgAmt = DSL.avg(amount).`as`("avg_amount")
+        val avgAmt = DSL.avg(PAYMENT.AMOUNT).`as`("avg_amount")
 
-        return dsl.select(method, totalAmt, cnt, avgAmt)
-            .from(Tables.PAYMENT)
-            .where(DSL.field(PaymentFields.STATUS).eq(PaymentStatus.COMPLETED.name))
-            .groupBy(method)
+        return dsl.select(PAYMENT.METHOD, totalAmt, cnt, avgAmt)
+            .from(PAYMENT)
+            .where(PAYMENT.STATUS.eq(PaymentStatus.COMPLETED.name))
+            .groupBy(PAYMENT.METHOD)
             .fetch()
             .associate { record ->
-                val payMethod = PaymentMethod.valueOf(record.getValue(method))
+                val payMethod = PaymentMethod.valueOf(record.getValue(PAYMENT.METHOD)!!)
                 payMethod to PaymentMethodStats(
                     method = payMethod,
                     totalAmount = Money((record.get("total_amount", BigDecimal::class.java) ?: BigDecimal.ZERO).setScale(2, java.math.RoundingMode.HALF_UP)),
@@ -147,63 +127,103 @@ class JooqPaymentRepository(private val dsl: DSLContext) : PaymentRepository {
     }
 
     override fun findByOrderId(orderId: OrderId): Payment? {
-        val pId = DSL.field(PaymentFields.ID, Long::class.java)
-        val pOrderId = DSL.field(PaymentFields.ORDER_ID, Long::class.java)
-        val pAmount = DSL.field(PaymentFields.AMOUNT, BigDecimal::class.java)
-        val pPaymentDate = DSL.field(PaymentFields.PAYMENT_DATE, LocalDateTime::class.java)
-        val pMethod = DSL.field(PaymentFields.METHOD, String::class.java)
-        val pStatus = DSL.field(PaymentFields.STATUS, String::class.java)
-        
-        return dsl.select(pId, pOrderId, pAmount, pPaymentDate, pMethod, pStatus)
-            .from(Tables.PAYMENT)
-            .where(pOrderId.eq(orderId.value))
+        return dsl.select(PAYMENT.ID, PAYMENT.ORDER_ID, PAYMENT.AMOUNT, PAYMENT.PAYMENT_DATE, PAYMENT.METHOD, PAYMENT.STATUS)
+            .from(PAYMENT)
+            .where(PAYMENT.ORDER_ID.eq(orderId.value))
             .fetchOne()
             ?.let { record ->
                 Payment(
-                    id = PaymentId(record.getValue(pId)),
-                    orderId = OrderId(record.getValue(pOrderId)),
-                    amount = Money(record.getValue(pAmount)),
-                    paymentDate = record.getValue(pPaymentDate),
-                    method = PaymentMethod.valueOf(record.getValue(pMethod)),
-                    status = PaymentStatus.valueOf(record.getValue(pStatus))
+                    id = PaymentId(record.getValue(PAYMENT.ID)!!),
+                    orderId = OrderId(record.getValue(PAYMENT.ORDER_ID)!!),
+                    amount = Money(record.getValue(PAYMENT.AMOUNT)!!),
+                    paymentDate = record.getValue(PAYMENT.PAYMENT_DATE)!!,
+                    method = PaymentMethod.valueOf(record.getValue(PAYMENT.METHOD)!!),
+                    status = PaymentStatus.valueOf(record.getValue(PAYMENT.STATUS)!!)
                 )
             }
     }
 
     override fun findFailedPaymentsWithDetails(): List<PaymentWithDetails> {
-        val pId = DSL.field("p.${PaymentFields.ID}", Long::class.java)
-        val pOrderId = DSL.field("p.${PaymentFields.ORDER_ID}", Long::class.java)
-        val pAmount = DSL.field("p.${PaymentFields.AMOUNT}", BigDecimal::class.java)
-        val pDate = DSL.field("p.${PaymentFields.PAYMENT_DATE}", LocalDateTime::class.java)
-        val pMethod = DSL.field("p.${PaymentFields.METHOD}", String::class.java)
-        val pStatus = DSL.field("p.${PaymentFields.STATUS}", String::class.java)
-        val oDate = DSL.field("o.${OrderFields.ORDER_DATE}", LocalDateTime::class.java)
-        val cName = DSL.field("c.${CustomerFields.NAME}", String::class.java)
-        val cEmail = DSL.field("c.${CustomerFields.EMAIL}", String::class.java)
+        val p = PAYMENT.`as`("p")
+        val o = ORDERS.`as`("o")
+        val c = CUSTOMER.`as`("c")
 
-        return dsl.select(pId, pOrderId, pAmount, pDate, pMethod, pStatus, oDate, cName, cEmail)
-            .from("${Tables.PAYMENT} p")
-            .join("${Tables.ORDER} o")
-            .on("p.${PaymentFields.ORDER_ID} = o.${OrderFields.ID}")
-            .join("${Tables.CUSTOMER} c")
-            .on("o.${OrderFields.CUSTOMER_ID} = c.${CustomerFields.ID}")
-            .where(pStatus.eq(PaymentStatus.FAILED.name))
+        return dsl.select(p.ID, p.ORDER_ID, p.AMOUNT, p.PAYMENT_DATE, p.METHOD, p.STATUS, o.ORDER_DATE, c.NAME, c.EMAIL)
+            .from(p)
+            .join(o).on(p.ORDER_ID.eq(o.ID))
+            .join(c).on(o.CUSTOMER_ID.eq(c.ID))
+            .where(p.STATUS.eq(PaymentStatus.FAILED.name))
             .fetch()
             .map { record ->
                 PaymentWithDetails(
                     payment = Payment(
-                        id = PaymentId(record.getValue(pId)),
-                        orderId = OrderId(record.getValue(pOrderId)),
-                        amount = Money(record.getValue(pAmount)),
-                        paymentDate = record.getValue(pDate),
-                        method = PaymentMethod.valueOf(record.getValue(pMethod)),
-                        status = PaymentStatus.valueOf(record.getValue(pStatus))
+                        id = PaymentId(record.getValue(p.ID)!!),
+                        orderId = OrderId(record.getValue(p.ORDER_ID)!!),
+                        amount = Money(record.getValue(p.AMOUNT)!!),
+                        paymentDate = record.getValue(p.PAYMENT_DATE)!!,
+                        method = PaymentMethod.valueOf(record.getValue(p.METHOD)!!),
+                        status = PaymentStatus.valueOf(record.getValue(p.STATUS)!!)
                     ),
-                    orderDate = record.getValue(oDate).toString(),
-                    customerName = record.getValue(cName),
-                    customerEmail = record.getValue(cEmail)
+                    orderDate = record.getValue(o.ORDER_DATE)!!.toString(),
+                    customerName = record.getValue(c.NAME)!!,
+                    customerEmail = record.getValue(c.EMAIL)!!
                 )
             }
+    }
+
+    override fun findPremiumCustomersWithUnion(
+        minTotalAmount: Money,
+        minPaymentCount: Long
+    ): List<PremiumCustomerInfo> {
+        val c = CUSTOMER.`as`("c")
+        val o = ORDERS.`as`("o")
+        val p = PAYMENT.`as`("p")
+
+        val totalAmount = DSL.sum(p.AMOUNT).`as`("total_amount")
+        val paymentCount = DSL.count(p.ID).`as`("payment_count")
+
+        // 첫 번째 쿼리: 고액 결제자 (총 결제 금액이 minTotalAmount 이상)
+        val highValueQuery = dsl
+            .select(c.ID, c.NAME, c.EMAIL, totalAmount, paymentCount)
+            .from(c)
+            .join(o).on(c.ID.eq(o.CUSTOMER_ID))
+            .join(p).on(o.ID.eq(p.ORDER_ID))
+            .where(p.STATUS.eq(PaymentStatus.COMPLETED.name))
+            .groupBy(c.ID, c.NAME, c.EMAIL)
+            .having(DSL.sum(p.AMOUNT).ge(minTotalAmount.amount))
+
+        // 두 번째 쿼리: 빈번한 결제자 (결제 횟수가 minPaymentCount 이상)
+        val frequentPayerQuery = dsl
+            .select(c.ID, c.NAME, c.EMAIL, totalAmount, paymentCount)
+            .from(c)
+            .join(o).on(c.ID.eq(o.CUSTOMER_ID))
+            .join(p).on(o.ID.eq(p.ORDER_ID))
+            .where(p.STATUS.eq(PaymentStatus.COMPLETED.name))
+            .groupBy(c.ID, c.NAME, c.EMAIL)
+            .having(DSL.count(p.ID).ge(minPaymentCount.toInt()))
+
+        // UNION: jOOQ는 union을 지원합니다
+        val unionResults = highValueQuery.union(frequentPayerQuery).fetch()
+
+        return unionResults.map { record ->
+            val totalAmt = Money((record.get("total_amount", BigDecimal::class.java) ?: BigDecimal.ZERO).setScale(2, java.math.RoundingMode.HALF_UP))
+            val payCnt = record.get("payment_count", Long::class.java) ?: 0L
+            
+            val customerType = when {
+                totalAmt.amount >= minTotalAmount.amount && payCnt >= minPaymentCount -> PremiumCustomerType.BOTH
+                totalAmt.amount >= minTotalAmount.amount -> PremiumCustomerType.HIGH_VALUE
+                else -> PremiumCustomerType.FREQUENT_PAYER
+            }
+            
+            PremiumCustomerInfo(
+                customerId = record.getValue(c.ID)!!,
+                customerName = record.getValue(c.NAME)!!,
+                customerEmail = record.getValue(c.EMAIL)!!,
+                totalPaymentAmount = totalAmt,
+                paymentCount = payCnt,
+                customerType = customerType
+            )
+        }
     }
 
 }

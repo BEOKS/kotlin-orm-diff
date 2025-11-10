@@ -135,6 +135,71 @@ class JpaPaymentRepository(private val em: EntityManager) : PaymentRepository {
         }
     }
 
+    override fun findPremiumCustomersWithUnion(
+        minTotalAmount: Money,
+        minPaymentCount: Long
+    ): List<PremiumCustomerInfo> {
+        // JPA에서 UNION을 사용하려면 Native SQL을 사용해야 합니다
+        // JPQL은 UNION을 지원하지 않습니다
+        val nativeQuery = em.createNativeQuery("""
+            SELECT customer_id, customer_name, customer_email, total_amount, payment_count
+            FROM (
+                SELECT 
+                    c.id as customer_id,
+                    c.name as customer_name,
+                    c.email as customer_email,
+                    SUM(p.amount) as total_amount,
+                    COUNT(p.id) as payment_count
+                FROM customer c
+                JOIN orders o ON c.id = o.customer_id
+                JOIN payment p ON o.id = p.order_id
+                WHERE p.status = 'COMPLETED'
+                GROUP BY c.id, c.name, c.email
+                HAVING SUM(p.amount) >= :minTotalAmount
+                
+                UNION
+                
+                SELECT 
+                    c.id as customer_id,
+                    c.name as customer_name,
+                    c.email as customer_email,
+                    SUM(p.amount) as total_amount,
+                    COUNT(p.id) as payment_count
+                FROM customer c
+                JOIN orders o ON c.id = o.customer_id
+                JOIN payment p ON o.id = p.order_id
+                WHERE p.status = 'COMPLETED'
+                GROUP BY c.id, c.name, c.email
+                HAVING COUNT(p.id) >= :minPaymentCount
+            ) premium_customers
+            ORDER BY customer_id
+        """)
+        
+        nativeQuery.setParameter("minTotalAmount", minTotalAmount.amount)
+        nativeQuery.setParameter("minPaymentCount", minPaymentCount)
+        
+        @Suppress("UNCHECKED_CAST")
+        return (nativeQuery.resultList as List<Array<Any>>).map { row ->
+            val totalAmount = Money(row[3] as java.math.BigDecimal)
+            val paymentCount = (row[4] as Number).toLong()
+            
+            val customerType = when {
+                totalAmount.amount >= minTotalAmount.amount && paymentCount >= minPaymentCount -> PremiumCustomerType.BOTH
+                totalAmount.amount >= minTotalAmount.amount -> PremiumCustomerType.HIGH_VALUE
+                else -> PremiumCustomerType.FREQUENT_PAYER
+            }
+            
+            PremiumCustomerInfo(
+                customerId = (row[0] as Number).toLong(),
+                customerName = row[1] as String,
+                customerEmail = row[2] as String,
+                totalPaymentAmount = totalAmount,
+                paymentCount = paymentCount,
+                customerType = customerType
+            )
+        }
+    }
+
     private fun PaymentEntity.toDomain(): Payment {
         return Payment(
             id = PaymentId(id),

@@ -175,6 +175,93 @@ class QueryDslPaymentRepository(private val em: EntityManager) : PaymentReposito
         }
     }
 
+    override fun findPremiumCustomersWithUnion(
+        minTotalAmount: Money,
+        minPaymentCount: Long
+    ): List<PremiumCustomerInfo> {
+        val qPayment = QPaymentEntity.paymentEntity
+        val qOrder = QOrderEntity.orderEntity
+        val qCustomer = QCustomerEntity.customerEntity
+
+        // QueryDSL에서 union을 사용하려면 두 쿼리를 실행하고 Kotlin에서 병합하는 것이 더 간단합니다
+        // (QueryDSL의 union은 복잡한 타입 처리 문제가 있습니다)
+        
+        // 첫 번째 쿼리: 고액 결제자 (총 결제 금액이 minTotalAmount 이상)
+        val highValueCustomers = queryFactory
+            .select(
+                qCustomer.id,
+                qCustomer.name,
+                qCustomer.email,
+                qPayment.amount.sum(),
+                qPayment.id.count()
+            )
+            .from(qCustomer)
+            .join(qOrder).on(qCustomer.id.eq(qOrder.customerId))
+            .join(qPayment).on(qOrder.id.eq(qPayment.orderId))
+            .where(qPayment.status.eq(PaymentStatus.COMPLETED.name))
+            .groupBy(qCustomer.id, qCustomer.name, qCustomer.email)
+            .having(qPayment.amount.sum().goe(minTotalAmount.amount))
+            .fetch()
+            .map { tuple ->
+                PremiumCustomerInfo(
+                    customerId = tuple.get(qCustomer.id)!!,
+                    customerName = tuple.get(qCustomer.name)!!,
+                    customerEmail = tuple.get(qCustomer.email)!!,
+                    totalPaymentAmount = Money(tuple.get(qPayment.amount.sum()) ?: java.math.BigDecimal.ZERO),
+                    paymentCount = tuple.get(qPayment.id.count()) ?: 0L,
+                    customerType = PremiumCustomerType.HIGH_VALUE // 임시로 설정
+                )
+            }
+
+        // 두 번째 쿼리: 빈번한 결제자 (결제 횟수가 minPaymentCount 이상)
+        val frequentPayers = queryFactory
+            .select(
+                qCustomer.id,
+                qCustomer.name,
+                qCustomer.email,
+                qPayment.amount.sum(),
+                qPayment.id.count()
+            )
+            .from(qCustomer)
+            .join(qOrder).on(qCustomer.id.eq(qOrder.customerId))
+            .join(qPayment).on(qOrder.id.eq(qPayment.orderId))
+            .where(qPayment.status.eq(PaymentStatus.COMPLETED.name))
+            .groupBy(qCustomer.id, qCustomer.name, qCustomer.email)
+            .having(qPayment.id.count().goe(minPaymentCount))
+            .fetch()
+            .map { tuple ->
+                PremiumCustomerInfo(
+                    customerId = tuple.get(qCustomer.id)!!,
+                    customerName = tuple.get(qCustomer.name)!!,
+                    customerEmail = tuple.get(qCustomer.email)!!,
+                    totalPaymentAmount = Money(tuple.get(qPayment.amount.sum()) ?: java.math.BigDecimal.ZERO),
+                    paymentCount = tuple.get(qPayment.id.count()) ?: 0L,
+                    customerType = PremiumCustomerType.FREQUENT_PAYER // 임시로 설정
+                )
+            }
+
+        // UNION 효과: 두 리스트를 합치고 중복을 제거 (customerId 기준)
+        val allCustomers = (highValueCustomers + frequentPayers)
+            .groupBy { it.customerId }
+            .map { (_, customers) ->
+                // 중복이 있다면 BOTH로 설정
+                val customer = customers.first()
+                val isBoth = customers.size > 1 || 
+                    (customer.totalPaymentAmount.amount >= minTotalAmount.amount && 
+                     customer.paymentCount >= minPaymentCount)
+                
+                customer.copy(
+                    customerType = when {
+                        isBoth -> PremiumCustomerType.BOTH
+                        customer.totalPaymentAmount.amount >= minTotalAmount.amount -> PremiumCustomerType.HIGH_VALUE
+                        else -> PremiumCustomerType.FREQUENT_PAYER
+                    }
+                )
+            }
+        
+        return allCustomers
+    }
+
     private fun PaymentEntity.toDomain(): Payment {
         return Payment(
             id = PaymentId(id),
