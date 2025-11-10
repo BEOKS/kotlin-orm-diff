@@ -29,18 +29,46 @@ class JooqOrderItemRepository(private val dsl: DSLContext) : OrderItemRepository
     }
 
     override fun findById(id: OrderItemId): OrderItem? {
-        return dsl.select()
+        val oiId = DSL.field(OrderItemFields.ID, Long::class.java)
+        val oiOrderId = DSL.field(OrderItemFields.ORDER_ID, Long::class.java)
+        val oiProductId = DSL.field(OrderItemFields.PRODUCT_ID, Long::class.java)
+        val oiQuantity = DSL.field(OrderItemFields.QUANTITY, Int::class.java)
+        val oiPrice = DSL.field(OrderItemFields.PRICE, BigDecimal::class.java)
+        
+        return dsl.select(oiId, oiOrderId, oiProductId, oiQuantity, oiPrice)
             .from(Tables.ORDER_ITEM)
-            .where(DSL.field(OrderItemFields.ID).eq(id.value))
+            .where(oiId.eq(id.value))
             .fetchOne()
-            ?.let { mapToOrderItem(it) }
+            ?.let { record ->
+                OrderItem(
+                    id = OrderItemId(record.getValue(oiId)),
+                    orderId = OrderId(record.getValue(oiOrderId)),
+                    productId = ProductId(record.getValue(oiProductId)),
+                    quantity = record.getValue(oiQuantity),
+                    price = Money(record.getValue(oiPrice))
+                )
+            }
     }
 
     override fun findAll(): List<OrderItem> {
-        return dsl.select()
+        val oiId = DSL.field(OrderItemFields.ID, Long::class.java)
+        val oiOrderId = DSL.field(OrderItemFields.ORDER_ID, Long::class.java)
+        val oiProductId = DSL.field(OrderItemFields.PRODUCT_ID, Long::class.java)
+        val oiQuantity = DSL.field(OrderItemFields.QUANTITY, Int::class.java)
+        val oiPrice = DSL.field(OrderItemFields.PRICE, BigDecimal::class.java)
+        
+        return dsl.select(oiId, oiOrderId, oiProductId, oiQuantity, oiPrice)
             .from(Tables.ORDER_ITEM)
             .fetch()
-            .map { mapToOrderItem(it) }
+            .map { record ->
+                OrderItem(
+                    id = OrderItemId(record.getValue(oiId)),
+                    orderId = OrderId(record.getValue(oiOrderId)),
+                    productId = ProductId(record.getValue(oiProductId)),
+                    quantity = record.getValue(oiQuantity),
+                    price = Money(record.getValue(oiPrice))
+                )
+            }
     }
 
     override fun update(orderItem: OrderItem): OrderItem {
@@ -62,54 +90,51 @@ class JooqOrderItemRepository(private val dsl: DSLContext) : OrderItemRepository
     }
 
     override fun findByOrderIdWithProduct(orderId: OrderId): List<OrderItemWithProduct> {
-        val oi = DSL.table(Tables.ORDER_ITEM).asTable("oi")
-        val p = DSL.table(Tables.PRODUCT).asTable("p")
+        val oiId = DSL.field("oi.${OrderItemFields.ID}", Long::class.java)
+        val oiOrderId = DSL.field("oi.${OrderItemFields.ORDER_ID}", Long::class.java)
+        val oiProdId = DSL.field("oi.${OrderItemFields.PRODUCT_ID}", Long::class.java)
+        val oiQty = DSL.field("oi.${OrderItemFields.QUANTITY}", Int::class.java)
+        val oiPrice = DSL.field("oi.${OrderItemFields.PRICE}", BigDecimal::class.java)
+        val pName = DSL.field("p.${ProductFields.NAME}", String::class.java)
+        val pCategory = DSL.field("p.${ProductFields.CATEGORY}", String::class.java)
 
-        return dsl.select(
-            oi.field(OrderItemFields.ID),
-            oi.field(OrderItemFields.ORDER_ID),
-            oi.field(OrderItemFields.PRODUCT_ID),
-            oi.field(OrderItemFields.QUANTITY),
-            oi.field(OrderItemFields.PRICE),
-            p.field(ProductFields.NAME),
-            p.field(ProductFields.CATEGORY)
-        )
-            .from(oi)
-            .join(p).on(oi.field(OrderItemFields.PRODUCT_ID).eq(p.field(ProductFields.ID)))
-            .where(oi.field(OrderItemFields.ORDER_ID).eq(orderId.value))
+        return dsl.select(oiId, oiOrderId, oiProdId, oiQty, oiPrice, pName, pCategory)
+            .from("${Tables.ORDER_ITEM} oi")
+            .join("${Tables.PRODUCT} p")
+            .on("oi.${OrderItemFields.PRODUCT_ID} = p.${ProductFields.ID}")
+            .where(oiOrderId.eq(orderId.value))
             .fetch()
             .map { record ->
                 OrderItemWithProduct(
                     orderItem = OrderItem(
-                        id = OrderItemId(record.get(oi.field(OrderItemFields.ID), Long::class.java)!!),
-                        orderId = OrderId(record.get(oi.field(OrderItemFields.ORDER_ID), Long::class.java)!!),
-                        productId = ProductId(record.get(oi.field(OrderItemFields.PRODUCT_ID), Long::class.java)!!),
-                        quantity = record.get(oi.field(OrderItemFields.QUANTITY), Int::class.java)!!,
-                        price = Money(record.get(oi.field(OrderItemFields.PRICE), BigDecimal::class.java)!!)
+                        id = OrderItemId(record.getValue(oiId)),
+                        orderId = OrderId(record.getValue(oiOrderId)),
+                        productId = ProductId(record.getValue(oiProdId)),
+                        quantity = record.getValue(oiQty),
+                        price = Money(record.getValue(oiPrice))
                     ),
-                    productName = record.get(p.field(ProductFields.NAME), String::class.java)!!,
-                    productCategory = record.get(p.field(ProductFields.CATEGORY), String::class.java)!!
+                    productName = record.getValue(pName),
+                    productCategory = record.getValue(pCategory)
                 )
             }
     }
 
     override fun calculateProductSalesStatistics(productId: ProductId): ProductSalesStatistics? {
-        return dsl.select(
-            DSL.field(OrderItemFields.PRODUCT_ID),
-            DSL.sum(DSL.field(OrderItemFields.QUANTITY, Int::class.java)).`as`("total_quantity"),
-            DSL.sum(
-                DSL.field(OrderItemFields.QUANTITY, Int::class.java)
-                    .mul(DSL.field(OrderItemFields.PRICE, BigDecimal::class.java))
-            ).`as`("total_revenue"),
-            DSL.count().`as`("order_count")
-        )
+        val prodId = DSL.field(OrderItemFields.PRODUCT_ID, Long::class.java)
+        val qty = DSL.field(OrderItemFields.QUANTITY, Int::class.java)
+        val price = DSL.field(OrderItemFields.PRICE, BigDecimal::class.java)
+        val totalQty = DSL.sum(qty).`as`("total_quantity")
+        val totalRev = DSL.sum(qty.mul(price)).`as`("total_revenue")
+        val orderCnt = DSL.count().`as`("order_count")
+
+        return dsl.select(prodId, totalQty, totalRev, orderCnt)
             .from(Tables.ORDER_ITEM)
-            .where(DSL.field(OrderItemFields.PRODUCT_ID).eq(productId.value))
-            .groupBy(DSL.field(OrderItemFields.PRODUCT_ID))
+            .where(prodId.eq(productId.value))
+            .groupBy(prodId)
             .fetchOne()
             ?.let { record ->
                 ProductSalesStatistics(
-                    productId = ProductId(record.get(OrderItemFields.PRODUCT_ID, Long::class.java)!!),
+                    productId = ProductId(record.getValue(prodId)),
                     totalQuantity = record.get("total_quantity", Int::class.java) ?: 0,
                     totalRevenue = Money(record.get("total_revenue", BigDecimal::class.java) ?: BigDecimal.ZERO),
                     orderCount = record.get("order_count", Long::class.java) ?: 0L
@@ -117,14 +142,4 @@ class JooqOrderItemRepository(private val dsl: DSLContext) : OrderItemRepository
             }
     }
 
-    private fun mapToOrderItem(record: org.jooq.Record): OrderItem {
-        return OrderItem(
-            id = OrderItemId(record.get(OrderItemFields.ID, Long::class.java)!!),
-            orderId = OrderId(record.get(OrderItemFields.ORDER_ID, Long::class.java)!!),
-            productId = ProductId(record.get(OrderItemFields.PRODUCT_ID, Long::class.java)!!),
-            quantity = record.get(OrderItemFields.QUANTITY, Int::class.java)!!,
-            price = Money(record.get(OrderItemFields.PRICE, BigDecimal::class.java)!!)
-        )
-    }
 }
-

@@ -71,23 +71,14 @@ class QueryDslPaymentRepository(private val em: EntityManager) : PaymentReposito
         val qOrder = QOrderEntity.orderEntity
         val qPayment = QPaymentEntity.paymentEntity
         
-        return queryFactory
+        val results = queryFactory
             .select(
-                Projections.constructor(
-                    CustomerStatistics::class.java,
-                    qCustomer.id,
-                    qCustomer.name,
-                    Projections.constructor(
-                        Money::class.java,
-                        qPayment.amount.sum().coalesce(java.math.BigDecimal.ZERO)
-                    ),
-                    Projections.constructor(
-                        Money::class.java,
-                        qPayment.amount.avg().coalesce(java.math.BigDecimal.ZERO)
-                    ),
-                    qPayment.id.count(),
-                    qOrder.id.countDistinct()
-                )
+                qCustomer.id,
+                qCustomer.name,
+                qPayment.amount.sum().coalesce(java.math.BigDecimal.ZERO),
+                qPayment.amount.avg().coalesce(0.0),
+                qPayment.id.count(),
+                qOrder.id.countDistinct()
             )
             .from(qCustomer)
             .join(qOrder).on(qCustomer.id.eq(qOrder.customerId))
@@ -95,6 +86,17 @@ class QueryDslPaymentRepository(private val em: EntityManager) : PaymentReposito
             .where(qPayment.status.eq(PaymentStatus.COMPLETED.name))
             .groupBy(qCustomer.id, qCustomer.name)
             .fetch()
+        
+        return results.map { tuple ->
+            CustomerStatistics(
+                customerId = tuple.get(0, Long::class.java)!!,
+                customerName = tuple.get(1, String::class.java)!!,
+                totalPayments = Money(tuple.get(2, java.math.BigDecimal::class.java) ?: java.math.BigDecimal.ZERO),
+                averagePayment = Money(tuple.get(3, Double::class.java)?.let { java.math.BigDecimal.valueOf(it) } ?: java.math.BigDecimal.ZERO),
+                paymentCount = tuple.get(4, Long::class.java) ?: 0L,
+                completedOrderCount = tuple.get(5, Long::class.java) ?: 0L
+            )
+        }
     }
 
     override fun calculatePaymentMethodStatistics(): Map<PaymentMethod, PaymentMethodStats> {
@@ -118,7 +120,7 @@ class QueryDslPaymentRepository(private val em: EntityManager) : PaymentReposito
                 method = method,
                 totalAmount = Money(tuple.get(qPayment.amount.sum()) ?: java.math.BigDecimal.ZERO),
                 count = tuple.get(qPayment.id.count()) ?: 0L,
-                averageAmount = Money(tuple.get(qPayment.amount.avg()) ?: java.math.BigDecimal.ZERO)
+                averageAmount = Money(tuple.get(qPayment.amount.avg())?.let { java.math.BigDecimal.valueOf(it) } ?: java.math.BigDecimal.ZERO)
             )
         }
     }
@@ -138,29 +140,39 @@ class QueryDslPaymentRepository(private val em: EntityManager) : PaymentReposito
         val qOrder = QOrderEntity.orderEntity
         val qCustomer = QCustomerEntity.customerEntity
         
-        return queryFactory
+        val results = queryFactory
             .select(
-                Projections.constructor(
-                    PaymentWithDetails::class.java,
-                    Projections.constructor(
-                        Payment::class.java,
-                        Projections.constructor(PaymentId::class.java, qPayment.id),
-                        Projections.constructor(OrderId::class.java, qPayment.orderId),
-                        Projections.constructor(Money::class.java, qPayment.amount),
-                        qPayment.paymentDate,
-                        PaymentMethod.valueOf(qPayment.method.stringValue()),
-                        PaymentStatus.valueOf(qPayment.status.stringValue())
-                    ),
-                    qOrder.orderDate.stringValue(),
-                    qCustomer.name,
-                    qCustomer.email
-                )
+                qPayment.id,
+                qPayment.orderId,
+                qPayment.amount,
+                qPayment.paymentDate,
+                qPayment.method,
+                qPayment.status,
+                qOrder.orderDate,
+                qCustomer.name,
+                qCustomer.email
             )
             .from(qPayment)
             .join(qOrder).on(qPayment.orderId.eq(qOrder.id))
             .join(qCustomer).on(qOrder.customerId.eq(qCustomer.id))
             .where(qPayment.status.eq(PaymentStatus.FAILED.name))
             .fetch()
+        
+        return results.map { tuple ->
+            PaymentWithDetails(
+                payment = Payment(
+                    id = PaymentId(tuple.get(qPayment.id)!!),
+                    orderId = OrderId(tuple.get(qPayment.orderId)!!),
+                    amount = Money(tuple.get(qPayment.amount)!!),
+                    paymentDate = tuple.get(qPayment.paymentDate)!!,
+                    method = PaymentMethod.valueOf(tuple.get(qPayment.method)!!),
+                    status = PaymentStatus.valueOf(tuple.get(qPayment.status)!!)
+                ),
+                orderDate = tuple.get(qOrder.orderDate)!!.toString(),
+                customerName = tuple.get(qCustomer.name)!!,
+                customerEmail = tuple.get(qCustomer.email)!!
+            )
+        }
     }
 
     private fun PaymentEntity.toDomain(): Payment {

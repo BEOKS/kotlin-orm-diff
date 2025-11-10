@@ -25,18 +25,46 @@ class JooqProductRepository(private val dsl: DSLContext) : ProductRepository {
     }
 
     override fun findById(id: ProductId): Product? {
-        return dsl.select()
+        val pId = DSL.field(ProductFields.ID, Long::class.java)
+        val pName = DSL.field(ProductFields.NAME, String::class.java)
+        val pPrice = DSL.field(ProductFields.PRICE, BigDecimal::class.java)
+        val pStock = DSL.field(ProductFields.STOCK, Int::class.java)
+        val pCategory = DSL.field(ProductFields.CATEGORY, String::class.java)
+        
+        return dsl.select(pId, pName, pPrice, pStock, pCategory)
             .from(Tables.PRODUCT)
-            .where(DSL.field(ProductFields.ID).eq(id.value))
+            .where(pId.eq(id.value))
             .fetchOne()
-            ?.let { mapToProduct(it) }
+            ?.let { record ->
+                Product(
+                    id = ProductId(record.getValue(pId)),
+                    name = record.getValue(pName),
+                    price = Money(record.getValue(pPrice)),
+                    stock = record.getValue(pStock),
+                    category = record.getValue(pCategory)
+                )
+            }
     }
 
     override fun findAll(): List<Product> {
-        return dsl.select()
+        val pId = DSL.field(ProductFields.ID, Long::class.java)
+        val pName = DSL.field(ProductFields.NAME, String::class.java)
+        val pPrice = DSL.field(ProductFields.PRICE, BigDecimal::class.java)
+        val pStock = DSL.field(ProductFields.STOCK, Int::class.java)
+        val pCategory = DSL.field(ProductFields.CATEGORY, String::class.java)
+        
+        return dsl.select(pId, pName, pPrice, pStock, pCategory)
             .from(Tables.PRODUCT)
             .fetch()
-            .map { mapToProduct(it) }
+            .map { record ->
+                Product(
+                    id = ProductId(record.getValue(pId)),
+                    name = record.getValue(pName),
+                    price = Money(record.getValue(pPrice)),
+                    stock = record.getValue(pStock),
+                    category = record.getValue(pCategory)
+                )
+            }
     }
 
     override fun update(product: Product): Product {
@@ -58,58 +86,55 @@ class JooqProductRepository(private val dsl: DSLContext) : ProductRepository {
     }
 
     override fun findProductsLowStockByCategory(threshold: Int): Map<String, List<Product>> {
-        return dsl.select()
+        val pId = DSL.field(ProductFields.ID, Long::class.java)
+        val pName = DSL.field(ProductFields.NAME, String::class.java)
+        val pPrice = DSL.field(ProductFields.PRICE, BigDecimal::class.java)
+        val pStock = DSL.field(ProductFields.STOCK, Int::class.java)
+        val pCategory = DSL.field(ProductFields.CATEGORY, String::class.java)
+        
+        return dsl.select(pId, pName, pPrice, pStock, pCategory)
             .from(Tables.PRODUCT)
-            .where(DSL.field(ProductFields.STOCK, Int::class.java).le(threshold))
-            .orderBy(DSL.field(ProductFields.CATEGORY), DSL.field(ProductFields.STOCK))
+            .where(pStock.le(threshold))
+            .orderBy(pCategory, pStock)
             .fetch()
-            .map { mapToProduct(it) }
+            .map { record ->
+                Product(
+                    id = ProductId(record.getValue(pId)),
+                    name = record.getValue(pName),
+                    price = Money(record.getValue(pPrice)),
+                    stock = record.getValue(pStock),
+                    category = record.getValue(pCategory)
+                )
+            }
             .groupBy { it.category }
     }
 
     override fun findTopSellingProducts(limit: Int): List<Product> {
-        val p = DSL.table(Tables.PRODUCT).asTable("p")
-        val oi = DSL.table(Tables.ORDER_ITEM).asTable("oi")
+        val pId = DSL.field("p.${ProductFields.ID}", Long::class.java)
+        val pName = DSL.field("p.${ProductFields.NAME}", String::class.java)
+        val pPrice = DSL.field("p.${ProductFields.PRICE}", BigDecimal::class.java)
+        val pStock = DSL.field("p.${ProductFields.STOCK}", Int::class.java)
+        val pCategory = DSL.field("p.${ProductFields.CATEGORY}", String::class.java)
+        val oiQuantity = DSL.field("oi.${OrderItemFields.QUANTITY}", Int::class.java)
+        val totalSold = DSL.sum(oiQuantity).`as`("total_sold")
 
-        return dsl.select(
-            p.field(ProductFields.ID),
-            p.field(ProductFields.NAME),
-            p.field(ProductFields.PRICE),
-            p.field(ProductFields.STOCK),
-            p.field(ProductFields.CATEGORY),
-            DSL.sum(oi.field(OrderItemFields.QUANTITY, Int::class.java)).`as`("total_sold")
-        )
-            .from(p)
-            .join(oi).on(p.field(ProductFields.ID).eq(oi.field(OrderItemFields.PRODUCT_ID)))
-            .groupBy(
-                p.field(ProductFields.ID),
-                p.field(ProductFields.NAME),
-                p.field(ProductFields.PRICE),
-                p.field(ProductFields.STOCK),
-                p.field(ProductFields.CATEGORY)
-            )
-            .orderBy(DSL.field("total_sold").desc())
+        return dsl.select(pId, pName, pPrice, pStock, pCategory, totalSold)
+            .from("${Tables.PRODUCT} p")
+            .join("${Tables.ORDER_ITEM} oi")
+            .on("p.${ProductFields.ID} = oi.${OrderItemFields.PRODUCT_ID}")
+            .groupBy(pId, pName, pPrice, pStock, pCategory)
+            .orderBy(totalSold.desc())
             .limit(limit)
             .fetch()
             .map { record ->
                 Product(
-                    id = ProductId(record.get(p.field(ProductFields.ID), Long::class.java)!!),
-                    name = record.get(p.field(ProductFields.NAME), String::class.java)!!,
-                    price = Money(record.get(p.field(ProductFields.PRICE), BigDecimal::class.java)!!),
-                    stock = record.get(p.field(ProductFields.STOCK), Int::class.java)!!,
-                    category = record.get(p.field(ProductFields.CATEGORY), String::class.java)!!
+                    id = ProductId(record.getValue(pId)),
+                    name = record.getValue(pName),
+                    price = Money(record.getValue(pPrice)),
+                    stock = record.getValue(pStock),
+                    category = record.getValue(pCategory)
                 )
             }
     }
 
-    private fun mapToProduct(record: org.jooq.Record): Product {
-        return Product(
-            id = ProductId(record.get(ProductFields.ID, Long::class.java)!!),
-            name = record.get(ProductFields.NAME, String::class.java)!!,
-            price = Money(record.get(ProductFields.PRICE, BigDecimal::class.java)!!),
-            stock = record.get(ProductFields.STOCK, Int::class.java)!!,
-            category = record.get(ProductFields.CATEGORY, String::class.java)!!
-        )
-    }
 }
-

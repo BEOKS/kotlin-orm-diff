@@ -12,7 +12,6 @@ import com.example.eshop.exposed.table.OrderItems
 import com.example.eshop.exposed.table.Products
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
-import org.jetbrains.exposed.sql.SqlExpressionBuilder.times
 
 class ExposedOrderItemRepository : OrderItemRepository {
 
@@ -75,28 +74,27 @@ class ExposedOrderItemRepository : OrderItemRepository {
     }
 
     override fun calculateProductSalesStatistics(productId: ProductId): ProductSalesStatistics? {
-        val totalQuantityAlias = OrderItems.quantity.sum()
-        val totalRevenueAlias = (OrderItems.quantity.castTo<Long>(LongColumnType()) * OrderItems.price).sum()
-        val orderCountAlias = OrderItems.id.count()
-        
-        return OrderItems
-            .select(
-                OrderItems.productId,
-                totalQuantityAlias,
-                totalRevenueAlias,
-                orderCountAlias
-            )
+        // Fetch all order items for the product and calculate in application code
+        val items = OrderItems.selectAll()
             .where { OrderItems.productId eq productId.value }
-            .groupBy(OrderItems.productId)
-            .map { row ->
-                ProductSalesStatistics(
-                    productId = ProductId(row[OrderItems.productId]),
-                    totalQuantity = row[totalQuantityAlias]?.toInt() ?: 0,
-                    totalRevenue = Money(row[totalRevenueAlias] ?: java.math.BigDecimal.ZERO),
-                    orderCount = row[orderCountAlias]
-                )
-            }
-            .singleOrNull()
+            .toList()
+        
+        if (items.isEmpty()) {
+            return null
+        }
+        
+        val totalQuantity = items.sumOf { it[OrderItems.quantity] }
+        val totalRevenue = items.fold(java.math.BigDecimal.ZERO) { acc, row ->
+            acc + (row[OrderItems.price] * java.math.BigDecimal.valueOf(row[OrderItems.quantity].toLong()))
+        }
+        val orderCount = items.size.toLong()
+        
+        return ProductSalesStatistics(
+            productId = productId,
+            totalQuantity = totalQuantity,
+            totalRevenue = Money(totalRevenue),
+            orderCount = orderCount
+        )
     }
 
     private fun ResultRow.toOrderItem() = OrderItem(
@@ -107,4 +105,3 @@ class ExposedOrderItemRepository : OrderItemRepository {
         price = Money(this[OrderItems.price])
     )
 }
-

@@ -72,7 +72,7 @@ class JpaPaymentRepository(private val em: EntityManager) : PaymentRepository {
                 customerId = row[0] as Long,
                 customerName = row[1] as String,
                 totalPayments = Money(row[2] as java.math.BigDecimal),
-                averagePayment = Money(row[3] as java.math.BigDecimal),
+                averagePayment = Money(java.math.BigDecimal.valueOf(row[3] as Double)),
                 paymentCount = row[4] as Long,
                 completedOrderCount = row[5] as Long
             )
@@ -98,7 +98,7 @@ class JpaPaymentRepository(private val em: EntityManager) : PaymentRepository {
                 method = method,
                 totalAmount = Money(row[1] as java.math.BigDecimal),
                 count = row[2] as Long,
-                averageAmount = Money(row[3] as java.math.BigDecimal)
+                averageAmount = Money(java.math.BigDecimal.valueOf(row[3] as Double))
             )
         }
     }

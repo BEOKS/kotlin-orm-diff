@@ -29,6 +29,7 @@ dependencies {
     
     // Test dependencies
     testImplementation("org.junit.jupiter:junit-jupiter:$junitVersion")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     testImplementation("ch.qos.logback:logback-classic:$logbackVersion")
 }
 
