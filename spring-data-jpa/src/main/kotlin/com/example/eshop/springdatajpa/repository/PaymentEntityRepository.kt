@@ -90,5 +90,64 @@ interface PaymentEntityRepository : JpaRepository<PaymentEntity, Long> {
         @Param("minTotalAmount") minTotalAmount: BigDecimal,
         @Param("minPaymentCount") minPaymentCount: Long
     ): List<Array<Any>>
+
+    /**
+     * 월별 결제 추이 분석 (Native Query)
+     *
+     * Window function LAG()를 사용하여 이전 달 데이터와 비교
+     * CTE를 사용하여 월별 집계 후 전월 대비 데이터 계산
+     */
+    @Query(value = """
+        WITH monthly_stats AS (
+            SELECT
+                strftime('%Y-%m', payment_date) as year_month,
+                SUM(amount) as total_amount,
+                COUNT(*) as payment_count,
+                AVG(amount) as average_amount
+            FROM payment
+            WHERE status = 'COMPLETED'
+            GROUP BY strftime('%Y-%m', payment_date)
+        )
+        SELECT
+            year_month,
+            total_amount,
+            payment_count,
+            average_amount,
+            LAG(total_amount) OVER (ORDER BY year_month) as previous_month_amount
+        FROM monthly_stats
+        ORDER BY year_month
+    """, nativeQuery = true)
+    fun findMonthlyPaymentTrends(): List<Array<Any>>
+
+    /**
+     * 고객별 최근 결제 내역 조회 (Native Query)
+     *
+     * ROW_NUMBER() window function을 사용하여
+     * 각 고객의 결제를 최신순으로 순위 매김
+     */
+    @Query(value = """
+        WITH ranked_payments AS (
+            SELECT
+                p.id as payment_id,
+                p.order_id,
+                p.amount,
+                p.payment_date,
+                p.method,
+                p.status,
+                c.id as customer_id,
+                c.name as customer_name,
+                o.order_date,
+                ROW_NUMBER() OVER (PARTITION BY c.id ORDER BY p.payment_date DESC) as row_num
+            FROM payment p
+            INNER JOIN orders o ON p.order_id = o.id
+            INNER JOIN customer c ON o.customer_id = c.id
+            WHERE p.status = 'COMPLETED'
+        )
+        SELECT *
+        FROM ranked_payments
+        WHERE row_num <= :limit
+        ORDER BY customer_id, row_num
+    """, nativeQuery = true)
+    fun findRecentPaymentsByAllCustomers(@Param("limit") limit: Int): List<Array<Any>>
 }
 

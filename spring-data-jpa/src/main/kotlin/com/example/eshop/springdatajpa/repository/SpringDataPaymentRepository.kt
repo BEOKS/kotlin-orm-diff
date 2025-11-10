@@ -138,6 +138,51 @@ class SpringDataPaymentRepository(
         }
     }
 
+    override fun findMonthlyPaymentTrends(): List<MonthlyPaymentTrend> {
+        return paymentEntityRepository.findMonthlyPaymentTrends().map { row ->
+            val totalAmount = BigDecimal.valueOf((row[1] as Number).toDouble())
+            val previousMonthAmount = row[4]?.let {
+                BigDecimal.valueOf((it as Number).toDouble())
+            }
+
+            val growthRate = if (previousMonthAmount != null && previousMonthAmount > BigDecimal.ZERO) {
+                ((totalAmount - previousMonthAmount) / previousMonthAmount * BigDecimal(100)).toDouble()
+            } else null
+
+            MonthlyPaymentTrend(
+                yearMonth = row[0] as String,
+                totalAmount = Money(totalAmount),
+                paymentCount = (row[2] as Number).toLong(),
+                averageAmount = Money(BigDecimal.valueOf((row[3] as Number).toDouble())),
+                previousMonthAmount = previousMonthAmount?.let { Money(it) },
+                growthRate = growthRate
+            )
+        }
+    }
+
+    override fun findRecentPaymentsByAllCustomers(limit: Int): List<RecentPaymentInfo> {
+        require(limit > 0) { "limit must be positive" }
+
+        return paymentEntityRepository.findRecentPaymentsByAllCustomers(limit).map { row ->
+            val payment = Payment(
+                id = PaymentId((row[0] as Number).toLong()),
+                orderId = OrderId((row[1] as Number).toLong()),
+                amount = Money(row[2] as BigDecimal),
+                paymentDate = row[3] as LocalDateTime,
+                method = PaymentMethod.valueOf(row[4] as String),
+                status = PaymentStatus.valueOf(row[5] as String)
+            )
+
+            RecentPaymentInfo(
+                customerId = (row[6] as Number).toLong(),
+                customerName = row[7] as String,
+                payment = payment,
+                orderDate = row[8] as String,
+                rowNumber = (row[9] as Number).toInt()
+            )
+        }
+    }
+
     private fun PaymentEntity.toDomain(): Payment {
         return Payment(
             id = PaymentId(id),

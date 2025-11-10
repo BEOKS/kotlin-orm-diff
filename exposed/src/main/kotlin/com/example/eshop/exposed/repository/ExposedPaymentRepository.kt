@@ -9,6 +9,7 @@ import com.example.eshop.exposed.table.Payments
 import com.example.eshop.exposed.util.toEnumOrThrow
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
+import org.jetbrains.exposed.sql.statements.api.ExposedBlob
 import org.jetbrains.exposed.sql.transactions.transaction
 import java.math.BigDecimal
 
@@ -210,6 +211,111 @@ class ExposedPaymentRepository : PaymentRepository {
                     customerType = customerType
                 )
             }
+    }
+
+    override fun findMonthlyPaymentTrends(): List<MonthlyPaymentTrend> = transaction {
+        // Exposed는 Native Query를 exec() 메서드로 실행할 수 있습니다.
+        // https://jetbrains.github.io/Exposed/deep-dive-into-dsl.html#execute-custom-sql
+
+        val sql = """
+            WITH monthly_stats AS (
+                SELECT
+                    strftime('%Y-%m', payment_date) as year_month,
+                    SUM(amount) as total_amount,
+                    COUNT(*) as payment_count,
+                    AVG(amount) as average_amount
+                FROM payments
+                WHERE status = 'COMPLETED'
+                GROUP BY strftime('%Y-%m', payment_date)
+            )
+            SELECT
+                year_month,
+                total_amount,
+                payment_count,
+                average_amount,
+                LAG(total_amount) OVER (ORDER BY year_month) as previous_month_amount
+            FROM monthly_stats
+            ORDER BY year_month
+        """.trimIndent()
+
+        val results = mutableListOf<MonthlyPaymentTrend>()
+
+        exec(sql) { rs ->
+            while (rs.next()) {
+                val totalAmount = rs.getBigDecimal("total_amount")
+                val previousMonthAmount = rs.getBigDecimal("previous_month_amount")
+
+                val growthRate = if (previousMonthAmount != null && previousMonthAmount > BigDecimal.ZERO) {
+                    ((totalAmount - previousMonthAmount) / previousMonthAmount * BigDecimal(100)).toDouble()
+                } else null
+
+                results.add(
+                    MonthlyPaymentTrend(
+                        yearMonth = rs.getString("year_month"),
+                        totalAmount = Money(totalAmount),
+                        paymentCount = rs.getLong("payment_count"),
+                        averageAmount = Money(rs.getBigDecimal("average_amount")),
+                        previousMonthAmount = previousMonthAmount?.let { Money(it) },
+                        growthRate = growthRate
+                    )
+                )
+            }
+        }
+
+        results
+    }
+
+    override fun findRecentPaymentsByAllCustomers(limit: Int): List<RecentPaymentInfo> = transaction {
+        require(limit > 0) { "limit must be positive" }
+
+        val sql = """
+            WITH ranked_payments AS (
+                SELECT
+                    p.id as payment_id,
+                    p.order_id,
+                    p.amount,
+                    p.payment_date,
+                    p.method,
+                    p.status,
+                    c.id as customer_id,
+                    c.name as customer_name,
+                    o.order_date,
+                    ROW_NUMBER() OVER (PARTITION BY c.id ORDER BY p.payment_date DESC) as row_num
+                FROM payments p
+                INNER JOIN orders o ON p.order_id = o.id
+                INNER JOIN customers c ON o.customer_id = c.id
+                WHERE p.status = 'COMPLETED'
+            )
+            SELECT *
+            FROM ranked_payments
+            WHERE row_num <= ?
+            ORDER BY customer_id, row_num
+        """.trimIndent()
+
+        val results = mutableListOf<RecentPaymentInfo>()
+
+        exec(sql, listOf(IntegerColumnType() to limit)) { rs ->
+            while (rs.next()) {
+                results.add(
+                    RecentPaymentInfo(
+                        customerId = rs.getLong("customer_id"),
+                        customerName = rs.getString("customer_name"),
+                        payment = Payment(
+                            id = PaymentId(rs.getLong("payment_id")),
+                            orderId = OrderId(rs.getLong("order_id")),
+                            amount = Money(rs.getBigDecimal("amount")),
+                            paymentDate = rs.getObject("payment_date", java.time.LocalDateTime::class.java),
+                            method = rs.getString("method").toEnumOrThrow<PaymentMethod>(),
+                            status = rs.getString("status").toEnumOrThrow<PaymentStatus>()
+                        ),
+                        orderDate = rs.getString("order_date"),
+                        rowNumber = rs.getInt("row_num")
+                    )
+                )
+            }
+        }
+
+        results
     }
 
     private fun ResultRow.toPayment() = Payment(

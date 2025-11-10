@@ -237,6 +237,101 @@ class JpaPaymentRepository(private val em: EntityManager) : PaymentRepository {
         return allCustomers.values.sortedBy { it.customerId }
     }
 
+    override fun findMonthlyPaymentTrends(): List<MonthlyPaymentTrend> {
+        // JPA Native Query를 사용하여 window function 실행
+        val query = em.createNativeQuery("""
+            WITH monthly_stats AS (
+                SELECT
+                    strftime('%Y-%m', payment_date) as year_month,
+                    SUM(amount) as total_amount,
+                    COUNT(*) as payment_count,
+                    AVG(amount) as average_amount
+                FROM payment
+                WHERE status = 'COMPLETED'
+                GROUP BY strftime('%Y-%m', payment_date)
+            )
+            SELECT
+                year_month,
+                total_amount,
+                payment_count,
+                average_amount,
+                LAG(total_amount) OVER (ORDER BY year_month) as previous_month_amount
+            FROM monthly_stats
+            ORDER BY year_month
+        """)
+
+        @Suppress("UNCHECKED_CAST")
+        return (query.resultList as List<Array<Any>>).map { row ->
+            val totalAmount = java.math.BigDecimal.valueOf((row[1] as Number).toDouble())
+            val previousMonthAmount = row[4]?.let {
+                java.math.BigDecimal.valueOf((it as Number).toDouble())
+            }
+
+            val growthRate = if (previousMonthAmount != null && previousMonthAmount > java.math.BigDecimal.ZERO) {
+                ((totalAmount - previousMonthAmount) / previousMonthAmount * java.math.BigDecimal(100)).toDouble()
+            } else null
+
+            MonthlyPaymentTrend(
+                yearMonth = row[0] as String,
+                totalAmount = Money(totalAmount),
+                paymentCount = (row[2] as Number).toLong(),
+                averageAmount = Money(java.math.BigDecimal.valueOf((row[3] as Number).toDouble())),
+                previousMonthAmount = previousMonthAmount?.let { Money(it) },
+                growthRate = growthRate
+            )
+        }
+    }
+
+    override fun findRecentPaymentsByAllCustomers(limit: Int): List<RecentPaymentInfo> {
+        require(limit > 0) { "limit must be positive" }
+
+        // JPA Native Query를 사용하여 window function 실행
+        val query = em.createNativeQuery("""
+            WITH ranked_payments AS (
+                SELECT
+                    p.id as payment_id,
+                    p.order_id,
+                    p.amount,
+                    p.payment_date,
+                    p.method,
+                    p.status,
+                    c.id as customer_id,
+                    c.name as customer_name,
+                    o.order_date,
+                    ROW_NUMBER() OVER (PARTITION BY c.id ORDER BY p.payment_date DESC) as row_num
+                FROM payment p
+                INNER JOIN orders o ON p.order_id = o.id
+                INNER JOIN customer c ON o.customer_id = c.id
+                WHERE p.status = 'COMPLETED'
+            )
+            SELECT *
+            FROM ranked_payments
+            WHERE row_num <= ?
+            ORDER BY customer_id, row_num
+        """)
+        query.setParameter(1, limit)
+
+        @Suppress("UNCHECKED_CAST")
+        return (query.resultList as List<Array<Any>>).map { row ->
+            val payment = Payment(
+                id = PaymentId((row[0] as Number).toLong()),
+                orderId = OrderId((row[1] as Number).toLong()),
+                amount = Money(row[2] as java.math.BigDecimal),
+                paymentDate = row[3] as java.time.LocalDateTime,
+                method = PaymentMethod.valueOf(row[4] as String),
+                status = PaymentStatus.valueOf(row[5] as String)
+            )
+
+            RecentPaymentInfo(
+                customerId = (row[6] as Number).toLong(),
+                customerName = row[7] as String,
+                payment = payment,
+                orderDate = (row[8] as java.time.LocalDateTime).toString(),
+                rowNumber = (row[9] as Number).toInt()
+            )
+        }
+    }
+
     private fun PaymentEntity.toDomain(): Payment {
         return Payment(
             id = PaymentId(id),

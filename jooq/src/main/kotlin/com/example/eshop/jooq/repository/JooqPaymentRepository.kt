@@ -377,4 +377,124 @@ class JooqPaymentRepository(private val dsl: DSLContext) : PaymentRepository {
             }
             .also { logger.info { "Found ${it.size} premium customers" } }
     }
+
+    override fun findMonthlyPaymentTrends(): List<MonthlyPaymentTrend> {
+        logger.debug { "Finding monthly payment trends" }
+
+        // jOOQ는 Native Query를 resultQuery() 메서드로 실행할 수 있습니다.
+        // https://www.jooq.org/doc/latest/manual/sql-building/plain-sql/
+
+        val sql = """
+            WITH monthly_stats AS (
+                SELECT
+                    strftime('%Y-%m', payment_date) as year_month,
+                    SUM(amount) as total_amount,
+                    COUNT(*) as payment_count,
+                    AVG(amount) as average_amount
+                FROM payment
+                WHERE status = 'COMPLETED'
+                GROUP BY strftime('%Y-%m', payment_date)
+            )
+            SELECT
+                year_month,
+                total_amount,
+                payment_count,
+                average_amount,
+                LAG(total_amount) OVER (ORDER BY year_month) as previous_month_amount
+            FROM monthly_stats
+            ORDER BY year_month
+        """.trimIndent()
+
+        return dsl.resultQuery(sql)
+            .fetch()
+            .mapNotNull { record ->
+                try {
+                    val totalAmount = record.get("total_amount", BigDecimal::class.java)
+                        ?: return@mapNotNull null
+                    val previousMonthAmount = record.get("previous_month_amount", BigDecimal::class.java)
+
+                    val growthRate = if (previousMonthAmount != null && previousMonthAmount > BigDecimal.ZERO) {
+                        ((totalAmount - previousMonthAmount) / previousMonthAmount * BigDecimal(100)).toDouble()
+                    } else null
+
+                    MonthlyPaymentTrend(
+                        yearMonth = record.get("year_month", String::class.java) ?: return@mapNotNull null,
+                        totalAmount = Money(totalAmount.setScale(MoneyConstants.SCALE, MoneyConstants.ROUNDING_MODE)),
+                        paymentCount = record.get("payment_count", Long::class.java) ?: 0L,
+                        averageAmount = Money(
+                            (record.get("average_amount", BigDecimal::class.java) ?: BigDecimal.ZERO)
+                                .setScale(MoneyConstants.SCALE, MoneyConstants.ROUNDING_MODE)
+                        ),
+                        previousMonthAmount = previousMonthAmount?.let {
+                            Money(it.setScale(MoneyConstants.SCALE, MoneyConstants.ROUNDING_MODE))
+                        },
+                        growthRate = growthRate
+                    )
+                } catch (e: Exception) {
+                    logger.error(e) { "Failed to map monthly payment trend" }
+                    null
+                }
+            }
+            .also { logger.debug { "Found ${it.size} monthly trends" } }
+    }
+
+    override fun findRecentPaymentsByAllCustomers(limit: Int): List<RecentPaymentInfo> {
+        require(limit > 0) { "limit must be positive" }
+        logger.debug { "Finding recent $limit payments by all customers" }
+
+        val sql = """
+            WITH ranked_payments AS (
+                SELECT
+                    p.id as payment_id,
+                    p.order_id,
+                    p.amount,
+                    p.payment_date,
+                    p.method,
+                    p.status,
+                    c.id as customer_id,
+                    c.name as customer_name,
+                    o.order_date,
+                    ROW_NUMBER() OVER (PARTITION BY c.id ORDER BY p.payment_date DESC) as row_num
+                FROM payment p
+                INNER JOIN orders o ON p.order_id = o.id
+                INNER JOIN customer c ON o.customer_id = c.id
+                WHERE p.status = 'COMPLETED'
+            )
+            SELECT *
+            FROM ranked_payments
+            WHERE row_num <= ?
+            ORDER BY customer_id, row_num
+        """.trimIndent()
+
+        return dsl.resultQuery(sql, limit)
+            .fetch()
+            .mapNotNull { record ->
+                try {
+                    val payment = Payment(
+                        id = PaymentId(record.get("payment_id", Long::class.java) ?: return@mapNotNull null),
+                        orderId = OrderId(record.get("order_id", Long::class.java) ?: return@mapNotNull null),
+                        amount = Money(record.get("amount", BigDecimal::class.java) ?: return@mapNotNull null),
+                        paymentDate = record.get("payment_date", java.time.LocalDateTime::class.java) ?: return@mapNotNull null,
+                        method = PaymentMethod.valueOf(
+                            record.get("method", String::class.java) ?: return@mapNotNull null
+                        ),
+                        status = PaymentStatus.valueOf(
+                            record.get("status", String::class.java) ?: return@mapNotNull null
+                        )
+                    )
+
+                    RecentPaymentInfo(
+                        customerId = record.get("customer_id", Long::class.java) ?: return@mapNotNull null,
+                        customerName = record.get("customer_name", String::class.java) ?: return@mapNotNull null,
+                        payment = payment,
+                        orderDate = record.get("order_date", String::class.java) ?: return@mapNotNull null,
+                        rowNumber = record.get("row_num", Int::class.java) ?: return@mapNotNull null
+                    )
+                } catch (e: Exception) {
+                    logger.error(e) { "Failed to map recent payment info" }
+                    null
+                }
+            }
+            .also { logger.debug { "Found ${it.size} recent payment records" } }
+    }
 }
